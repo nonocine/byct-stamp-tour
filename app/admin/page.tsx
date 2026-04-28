@@ -117,6 +117,20 @@ export default function AdminPage() {
   const [cancelling, setCancelling] = useState(false)
   const [cancelSuccess, setCancelSuccess] = useState(false)
 
+  // 별도 "스탬프 취소" 섹션 전용 state
+  const [cancelSearchPhone, setCancelSearchPhone] = useState('')
+  const [cancelSearching, setCancelSearching] = useState(false)
+  const [cancelSearchError, setCancelSearchError] = useState('')
+  const [cancelTarget, setCancelTarget] = useState<{
+    stampId: string
+    stampedAt: string
+    name: string
+    phone: string
+    birthdate: string
+  } | null>(null)
+  const [cancelProcessing, setCancelProcessing] = useState(false)
+  const [cancelDoneMsg, setCancelDoneMsg] = useState(false)
+
   // ── 참가자 관리 ──────────────────────────────────────────────────────────
   const [pSearch, setPSearch] = useState('')
   const [pCenterId, setPCenterId] = useState<number | null>(null)
@@ -629,6 +643,67 @@ export default function AdminPage() {
     }
   }
 
+  async function handleCancelSearch() {
+    if (!cancelSearchPhone || !admin) return
+    const orgId = admin.role === 'center' ? admin.center_id : selectedOrgId
+    if (!orgId) {
+      setCancelSearchError(admin.role === 'super' ? '먼저 발급 기관을 선택해주세요' : '기관 정보가 없습니다')
+      return
+    }
+    setCancelSearching(true)
+    setCancelSearchError('')
+    setCancelTarget(null)
+    setCancelDoneMsg(false)
+    try {
+      const raw = cancelSearchPhone.replace(/\D/g, '')
+      const { data: profile, error: pErr } = await supabase
+        .from('profiles')
+        .select('id, name, phone, birthdate')
+        .eq('phone', raw)
+        .maybeSingle()
+      if (pErr) throw pErr
+      if (!profile) { setCancelSearchError('해당 전화번호로 등록된 참여자가 없습니다'); return }
+
+      const { data: stamp, error: sErr } = await supabase
+        .from('stamp_records')
+        .select('id, stamped_at')
+        .eq('participant_id', profile.id)
+        .eq('center_id', orgId)
+        .maybeSingle()
+      if (sErr) throw sErr
+      if (!stamp) { setCancelSearchError('해당 기관에서 발급된 스탬프가 없습니다'); return }
+
+      setCancelTarget({
+        stampId: stamp.id,
+        stampedAt: stamp.stamped_at,
+        name: profile.name,
+        phone: profile.phone,
+        birthdate: profile.birthdate ?? '',
+      })
+    } catch (e: any) {
+      setCancelSearchError(e.message ?? '오류가 발생했습니다')
+    } finally {
+      setCancelSearching(false)
+    }
+  }
+
+  async function handleCancelTargetExecute() {
+    if (!cancelTarget) return
+    if (!confirm(`"${cancelTarget.name}" 참가자의 스탬프를 취소하시겠습니까?\n발급된 스탬프 기록이 삭제됩니다.`)) return
+    setCancelProcessing(true)
+    try {
+      const { error } = await supabase.from('stamp_records').delete().eq('id', cancelTarget.stampId)
+      if (error) throw error
+      setCancelTarget(null)
+      setCancelSearchPhone('')
+      setCancelDoneMsg(true)
+    } catch (e: any) {
+      alert('취소 실패: ' + (e.message ?? ''))
+    } finally {
+      setCancelProcessing(false)
+    }
+  }
+
   // ── 관리자 관리 ──────────────────────────────────────────────────────────
 
   async function loadAdmins() {
@@ -1083,6 +1158,78 @@ export default function AdminPage() {
                   </div>
                 </div>
               )}
+
+              {/* ── 스탬프 취소 섹션 ────────────────────────────────────── */}
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100">
+                  <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                    <Trash2 size={14} className="text-red-500" /> 스탬프 취소
+                  </h2>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {admin.role === 'center'
+                      ? `${admin.center_name ?? '본인 기관'}에서 발급된 스탬프만 취소할 수 있습니다.`
+                      : '선택한 기관의 스탬프 기록을 취소합니다.'}
+                  </p>
+                </div>
+
+                <div className="px-5 py-4 space-y-3">
+                  <div className="flex gap-2">
+                    <input
+                      type="tel" inputMode="numeric"
+                      value={cancelSearchPhone}
+                      onChange={e => {
+                        setCancelSearchPhone(formatPhone(e.target.value))
+                        setCancelSearchError('')
+                        setCancelTarget(null)
+                        setCancelDoneMsg(false)
+                      }}
+                      onKeyDown={e => e.key === 'Enter' && handleCancelSearch()}
+                      placeholder="010-1234-5678"
+                      className="flex-1 px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-800 tracking-wider"
+                    />
+                    <button
+                      onClick={handleCancelSearch}
+                      disabled={cancelSearching || !cancelSearchPhone}
+                      className="px-4 py-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800 active:scale-95 transition-all disabled:opacity-50"
+                    >
+                      {cancelSearching ? <RefreshCw size={16} className="animate-spin" /> : <Search size={16} />}
+                    </button>
+                  </div>
+
+                  {cancelSearchError && (
+                    <div className="flex items-center gap-2 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                      <XCircle size={15} className="text-red-500 flex-shrink-0" />
+                      <p className="text-sm text-red-600">{cancelSearchError}</p>
+                    </div>
+                  )}
+
+                  {cancelDoneMsg && !cancelTarget && (
+                    <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                      <CheckCircle size={18} className="text-green-500 flex-shrink-0" />
+                      <p className="text-sm font-semibold text-green-700">스탬프가 취소되었습니다.</p>
+                    </div>
+                  )}
+
+                  {cancelTarget && (
+                    <div className="border border-gray-200 rounded-xl overflow-hidden">
+                      <div className="px-4 py-3 space-y-2 bg-amber-50/40">
+                        <div className="flex justify-between"><span className="text-xs text-gray-500">이름</span><span className="text-sm font-semibold text-gray-900">{cancelTarget.name}</span></div>
+                        <div className="flex justify-between"><span className="text-xs text-gray-500">전화번호</span><span className="text-sm text-gray-700">{formatPhone(cancelTarget.phone)}</span></div>
+                        <div className="flex justify-between"><span className="text-xs text-gray-500">생년월일</span><span className="text-sm text-gray-700">{formatBirthdate(cancelTarget.birthdate)}</span></div>
+                        <div className="flex justify-between"><span className="text-xs text-gray-500">스탬프 발급일</span><span className="text-sm text-gray-700">{formatDate(cancelTarget.stampedAt)}</span></div>
+                      </div>
+                      <button
+                        onClick={handleCancelTargetExecute}
+                        disabled={cancelProcessing}
+                        className="w-full py-3.5 bg-red-600 text-white font-bold text-sm hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        <Trash2 size={16} />
+                        {cancelProcessing ? '취소 중...' : '스탬프 취소'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
             </>
           )}
         </div>
