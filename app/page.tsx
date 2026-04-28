@@ -218,7 +218,7 @@ export default function HomePage() {
           {[
             { step: '01', title: '회원가입 & 로그인', desc: '전화번호와 생년월일로 간편하게 가입해요' },
             { step: '02', title: '기관 방문 & 체험', desc: '17개 기관의 프로그램을 체험해요' },
-            { step: '03', title: '별점 평가 & 스탬프', desc: '체험 후 만족도를 평가하면 스탬프가 찍혀요' },
+            { step: '03', title: '별점 평가 & 스탬프', desc: '체험 후 만족도 평가후 기관 담당자 인증 후 스탬프가 찍혀요' },
             { step: '04', title: '완주 인증', desc: '17개 모두 수집하면 완주 인증서를 받아요!' },
           ].map(item => (
             <div key={item.step} className="flex items-start gap-3">

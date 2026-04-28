@@ -72,7 +72,7 @@ export default function ProgramsPage() {
       {/* 헤더 */}
       <div className="px-4 mb-3">
         <h1 className="text-xl font-black text-gray-900">프로그램 목록</h1>
-        <p className="text-sm text-gray-500 mt-0.5">17개 기관 · {PROGRAMS.length}개 프로그램</p>
+        <p className="text-sm text-gray-500 mt-0.5">17개 기관</p>
       </div>
 
       {/* 안내 */}

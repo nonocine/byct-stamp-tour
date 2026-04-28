@@ -17,6 +17,8 @@ export default function Navigation() {
   const router = useRouter()
   const { profile, loading, signOut } = useAuth()
 
+  const isAdminPath = pathname?.startsWith('/admin') ?? false
+
   function handleSignOut() {
     signOut()
     router.push('/login')
@@ -34,7 +36,11 @@ export default function Navigation() {
             <span className="font-bold text-gray-900 text-sm">B.Y.C.T 스탬프투어</span>
           </Link>
 
-          {!loading && (
+          {isAdminPath ? (
+            <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-3 py-1.5 rounded-full">
+              관리자 모드
+            </span>
+          ) : !loading && (
             profile ? (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-gray-600 font-medium hidden sm:block">

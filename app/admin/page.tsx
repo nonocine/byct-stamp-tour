@@ -100,6 +100,8 @@ export default function AdminPage() {
   const [dashLoading, setDashLoading] = useState(false)
   const [dashPage, setDashPage] = useState(0)
   const [dashTotal, setDashTotal] = useState(0)
+  const [ranking, setRanking] = useState<{ id: string; name: string; phoneSuffix: string; count: number }[]>([])
+  const [rankLoading, setRankLoading] = useState(false)
 
   // ── 스탬프 찍기 ──────────────────────────────────────────────────────────
   const [searchPhone, setSearchPhone] = useState('')
@@ -186,6 +188,43 @@ export default function AdminPage() {
       setStatsLoading(false)
     }
   }, [admin])
+
+  const loadRanking = useCallback(async () => {
+    setRankLoading(true)
+    try {
+      const { data } = await supabase
+        .from('stamp_records')
+        .select('participant_id, participant_name, participant_phone, center_id')
+      if (!data) return
+
+      const map: Record<string, { name: string; phone: string; centers: Set<number> }> = {}
+      ;(data as any[]).forEach(s => {
+        if (!s.participant_id) return
+        if (!map[s.participant_id]) {
+          map[s.participant_id] = {
+            name: s.participant_name ?? '',
+            phone: s.participant_phone ?? '',
+            centers: new Set(),
+          }
+        }
+        map[s.participant_id].centers.add(s.center_id)
+      })
+
+      const rows = Object.entries(map)
+        .map(([id, v]) => ({
+          id,
+          name: v.name || '익명',
+          phoneSuffix: (v.phone || '').slice(-4),
+          count: v.centers.size,
+        }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10)
+
+      setRanking(rows)
+    } finally {
+      setRankLoading(false)
+    }
+  }, [])
 
   const loadDashParticipants = useCallback(async (p: number) => {
     if (!admin) return
@@ -639,11 +678,17 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (loading || !admin) return
-    if (tab === 'dashboard') { loadStats(); loadDashParticipants(0); setDashPage(0) }
+    if (tab === 'dashboard') { loadStats(); loadDashParticipants(0); loadRanking(); setDashPage(0) }
     if (tab === 'participants') { loadParticipants(0, '', pCenterId); setPPage(0); setPSearch('') }
     if (tab === 'admins' && admin.role === 'super') loadAdmins()
     if (tab === 'links') loadCenterLinks()
   }, [tab, admin, loading]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (loading || !admin || tab !== 'dashboard') return
+    const id = setInterval(() => loadRanking(), 30000)
+    return () => clearInterval(id)
+  }, [tab, admin, loading, loadRanking])
 
   useEffect(() => {
     if (tab === 'dashboard') loadDashParticipants(dashPage)
@@ -723,7 +768,7 @@ export default function AdminPage() {
         <div className="px-4 space-y-4">
           <div className="flex justify-end">
             <button
-              onClick={() => { loadStats(); loadDashParticipants(dashPage) }}
+              onClick={() => { loadStats(); loadDashParticipants(dashPage); loadRanking() }}
               disabled={statsLoading}
               className="flex items-center gap-1.5 bg-gray-100 text-gray-600 text-xs font-medium px-3 py-2 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50"
             >
@@ -755,6 +800,63 @@ export default function AdminPage() {
                   <p className="text-3xl font-black">{stats.completions}</p>
                   <p className="text-sm text-green-200 mt-0.5">17개 기관 완주자</p>
                 </div>
+              </div>
+
+              {/* 실시간 스탬프 랭킹 */}
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                  <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                    🏆 실시간 스탬프 랭킹
+                  </h2>
+                  <button onClick={loadRanking} className="text-gray-400 hover:text-gray-600 transition-colors">
+                    <RefreshCw size={13} className={rankLoading ? 'animate-spin' : ''} />
+                  </button>
+                </div>
+                {ranking.length === 0 ? (
+                  <div className="py-8 text-center text-sm text-gray-400">
+                    {rankLoading ? '불러오는 중...' : '아직 스탬프가 없습니다'}
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {ranking.map((r, idx) => {
+                      const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null
+                      const progress = Math.min(100, Math.round((r.count / 17) * 100))
+                      return (
+                        <div key={r.id} className="px-5 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-7 flex-shrink-0 text-center">
+                              {medal
+                                ? <span className="text-xl">{medal}</span>
+                                : <span className="text-sm font-bold text-gray-500">{idx + 1}</span>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2 mb-1.5">
+                                <p className="text-sm font-semibold text-gray-900 truncate">
+                                  {r.name}
+                                  {r.phoneSuffix && <span className="text-xs text-gray-400 ml-1.5">({r.phoneSuffix})</span>}
+                                </p>
+                                <p className="text-xs font-bold text-blue-600 flex-shrink-0">
+                                  {r.count}<span className="font-normal text-gray-400">/17</span>
+                                </p>
+                              </div>
+                              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full rounded-full transition-all duration-500"
+                                  style={{
+                                    width: `${progress}%`,
+                                    background: r.count >= 17
+                                      ? 'linear-gradient(90deg, #F59E0B, #EF4444)'
+                                      : 'linear-gradient(90deg, #3B82F6, #6366F1)',
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
