@@ -4,13 +4,21 @@ import Navigation from '@/components/Navigation'
 import { AuthProvider } from '@/components/AuthProvider'
 
 export const metadata: Metadata = {
-  title: 'B.Y.C.T 부산 청소년 스탬프 투어',
-  description: '부산 17개 청소년수련시설 스탬프 투어 프로그램',
-  metadataBase: new URL('https://ppgthptyjjrcmkeearfx.supabase.co'),
+  title: 'B.Y.C.T 부산 청소년 스탬프투어',
+  description: '부산 17개 청소년기관을 체험하고 스탬프를 모아 완주 인증을 받으세요!',
+  metadataBase: new URL('https://byct-stamp-tour.vercel.app'),
   openGraph: {
-    title: 'B.Y.C.T 부산 청소년 스탬프 투어',
-    description: '부산 17개 청소년수련시설 스탬프 투어 프로그램',
-    images: [{ url: '/og-image.png' }],
+    title: 'B.Y.C.T 부산 청소년 스탬프투어',
+    description: '부산 17개 청소년기관을 체험하고 스탬프를 모아 완주 인증을 받으세요!',
+    images: [
+      {
+        url: 'https://byct-stamp-tour.vercel.app/logos/동래구청소년센터.png',
+        width: 1200,
+        height: 630,
+      },
+    ],
+    locale: 'ko_KR',
+    type: 'website',
   },
 }
 

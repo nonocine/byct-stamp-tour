@@ -1,6 +1,5 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import Script from 'next/script'
 import { MapPin, Clock, Users, ChevronDown, ChevronUp, ExternalLink, Info } from 'lucide-react'
 import OrgIcon from '@/components/OrgIcon'
 import { ORGANIZATIONS, PROGRAMS } from '@/lib/data'
@@ -147,23 +146,40 @@ export default function ProgramsPage() {
     }
   }, [])
 
-  // 카카오 SDK가 준비되면 initMap 호출 — 라우트 재진입에도 안전
+  // 카카오맵 SDK 동적 로드 — autoload=false로 document.write 회피
   useEffect(() => {
-    function check() {
+    const SCRIPT_ID = 'kakao-maps-sdk'
+
+    function runInit() {
       const k = (window as any).kakao
-      if (k && k.maps && k.maps.LatLng) {
-        initMap()
-        return true
-      }
-      return false
+      if (k && k.maps) k.maps.load(() => initMap())
     }
-    if (check()) return
-    const id = setInterval(() => { if (check()) clearInterval(id) }, 100)
-    const timeoutId = setTimeout(() => {
-      clearInterval(id)
-      if (!mapReady.current) setMapError('지도 로드가 지연됩니다. 잠시 후 새로고침해주세요.')
-    }, 10000)
-    return () => { clearInterval(id); clearTimeout(timeoutId) }
+
+    // 이미 로드되어 있으면 즉시 init
+    if ((window as any).kakao && (window as any).kakao.maps) {
+      runInit()
+      return
+    }
+
+    // 스크립트가 이미 추가되어 있으면 load 이벤트만 구독
+    const existing = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null
+    if (existing) {
+      existing.addEventListener('load', runInit)
+      return () => existing.removeEventListener('load', runInit)
+    }
+
+    const script = document.createElement('script')
+    script.id = SCRIPT_ID
+    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_APP_KEY}&libraries=services&autoload=false`
+    script.async = true
+    script.onload = runInit
+    script.onerror = () => {
+      setMapError(
+        `지도를 불러오지 못했습니다. 카카오 개발자 콘솔(developers.kakao.com)에서 ` +
+        `[내 애플리케이션 → 플랫폼 → Web]에 "${typeof window !== 'undefined' ? window.location.origin : ''}"을 등록해주세요.`
+      )
+    }
+    document.head.appendChild(script)
   }, [initMap])
 
   function formatDate(dateStr: string) {
@@ -173,18 +189,6 @@ export default function ProgramsPage() {
 
   return (
     <div className="py-5">
-      {/* 카카오맵 SDK — beforeInteractive로 hydration 전 로드, autoload 기본값 사용 */}
-      <Script
-        src={`https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_APP_KEY}&libraries=services`}
-        strategy="beforeInteractive"
-        onError={() => {
-          setMapError(
-            `지도를 불러오지 못했습니다. 카카오 개발자 콘솔(developers.kakao.com)에서 ` +
-            `[내 애플리케이션 → 플랫폼 → Web]에 "${typeof window !== 'undefined' ? window.location.origin : ''}"을 등록해주세요.`
-          )
-        }}
-      />
-
       {/* 헤더 */}
       <div className="px-4 mb-3">
         <h1 className="text-xl font-black text-gray-900">프로그램 목록</h1>
