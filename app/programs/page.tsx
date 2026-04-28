@@ -1,42 +1,36 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
-import { MapPin, Clock, Users, ChevronDown, ChevronUp, Stamp } from 'lucide-react'
-import RatingModal from '@/components/RatingModal'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import Script from 'next/script'
+import { MapPin, Clock, Users, ChevronDown, ChevronUp, ExternalLink, Info } from 'lucide-react'
 import OrgIcon from '@/components/OrgIcon'
 import { ORGANIZATIONS, PROGRAMS } from '@/lib/data'
-import { loadStamps, saveStamp } from '@/lib/store'
-import type { Stamp as StampType, Program, Organization } from '@/lib/types'
-import { useAuth } from '@/components/AuthProvider'
+import { supabase } from '@/lib/supabase'
 
 const KAKAO_APP_KEY = 'b15da2a5d31a20e1b272e534b9a24594'
 
-const ORG_COORDS: Record<number, { lat: number; lng: number }> = {
-  1:  { lat: 35.1631, lng: 129.1603 },
-  2:  { lat: 35.1571, lng: 129.0572 },
-  3:  { lat: 35.1588, lng: 129.1420 },
-  4:  { lat: 35.2107, lng: 129.0156 },
-  5:  { lat: 35.1977, lng: 129.0836 },
-  6:  { lat: 35.1454, lng: 129.1134 },
-  7:  { lat: 35.1721, lng: 129.1089 },
-  8:  { lat: 35.0996, lng: 128.9757 },
-  9:  { lat: 35.1579, lng: 129.0471 },
-  10: { lat: 35.2041, lng: 128.9891 },
-  11: { lat: 35.1537, lng: 128.9924 },
-  12: { lat: 35.1555, lng: 129.0601 },
-  13: { lat: 35.1602, lng: 129.0231 },
-  14: { lat: 35.0979, lng: 129.0197 },
-  15: { lat: 35.1479, lng: 129.1156 },
-  16: { lat: 35.1523, lng: 129.1398 },
-  17: { lat: 35.2423, lng: 129.0894 },
+const ORG_ADDRESSES: Record<number, string> = {
+  1:  '부산광역시 해운대구 재반로 151-21',
+  2:  '부산광역시 부산진구 동평로405번길 85',
+  3:  '부산광역시 해운대구 반송순환로 135',
+  4:  '부산광역시 북구 효열로 158',
+  5:  '부산광역시 동래구 문화로 90',
+  6:  '부산광역시 수영구 수영로521번길 77',
+  7:  '부산광역시 수영구 황령산로 156',
+  8:  '부산광역시 사하구 다대로 716-1',
+  9:  '부산광역시 부산진구 범전로5번길 13',
+  10: '부산광역시 북구 화봉로 80',
+  11: '부산광역시 사상구 학감대로 118',
+  12: '부산광역시 부산진구 진남로328번길 62',
+  13: '부산광역시 부산진구 가야대로548번길 50',
+  14: '부산광역시 중구 보수동2가 65-5',
+  15: '부산광역시 남구 황령대로 401-9',
+  16: '부산광역시 해운대구 해운대해변로 35',
+  17: '부산광역시 금정구 기찰로96번길 47',
 }
 
 export default function ProgramsPage() {
-  const router = useRouter()
-  const { profile } = useAuth()
-  const [stamps, setStamps] = useState<StampType[]>([])
   const [expanded, setExpanded] = useState<number | null>(null)
-  const [modalData, setModalData] = useState<{ program: Program; org: Organization } | null>(null)
+  const [centerUrls, setCenterUrls] = useState<Record<number, string>>({})
 
   const orgCardRefs  = useRef<Record<number, HTMLDivElement | null>>({})
   const mapContainer = useRef<HTMLDivElement>(null)
@@ -45,40 +39,42 @@ export default function ProgramsPage() {
   const [mapError, setMapError] = useState<string | null>(null)
 
   useEffect(() => {
-    setStamps(loadStamps())
+    loadCenterUrls()
   }, [])
 
-  // ── 카카오맵 초기화 ──────────────────────────────────────────────
-  useEffect(() => {
-    if (mapReady.current) return
+  async function loadCenterUrls() {
+    const { data } = await supabase.from('centers').select('id, program_url')
+    if (!data) return
+    const map: Record<number, string> = {}
+    data.forEach((c: any) => {
+      if (c.program_url) map[c.id] = c.program_url
+    })
+    setCenterUrls(map)
+  }
 
-    function initMap() {
-      try {
-        if (!mapContainer.current) {
-          console.error('[카카오맵] 지도 컨테이너 DOM을 찾을 수 없습니다.')
-          return
-        }
-        const kakao = (window as any).kakao
+  // ── 카카오맵 초기화 (Script onLoad 에서 호출) ──────────────────────
+  const initMap = useCallback(() => {
+    if (mapReady.current || !mapContainer.current) return
+    try {
+      const kakao = (window as any).kakao
 
       const map = new kakao.maps.Map(mapContainer.current, {
         center: new kakao.maps.LatLng(35.1796, 129.0756),
         level: 8,
       })
 
-      ORGANIZATIONS.forEach(org => {
-        const coords = ORG_COORDS[org.id]
-        if (!coords) return
-        const position = new kakao.maps.LatLng(coords.lat, coords.lng)
+      const geocoder = new kakao.maps.services.Geocoder()
 
-        // 마커 DOM 엘리먼트
+      // 마커 생성 헬퍼
+      function placeMarker(org: (typeof ORGANIZATIONS)[0], position: any) {
         const el = document.createElement('div')
         el.style.cssText = [
-          'width:26px','height:26px',
+          'width:26px', 'height:26px',
           'background:#2563EB',
           'border:2.5px solid white',
           'border-radius:50%',
-          'display:flex','align-items:center','justify-content:center',
-          'color:white','font-size:10px','font-weight:900',
+          'display:flex', 'align-items:center', 'justify-content:center',
+          'color:white', 'font-size:10px', 'font-weight:900',
           'box-shadow:0 2px 8px rgba(0,0,0,0.35)',
           'cursor:pointer',
           'transition:transform 0.15s, background-color 0.2s',
@@ -87,13 +83,12 @@ export default function ProgramsPage() {
         el.textContent = String(org.id)
         markerEls.current[org.id] = el
 
-        // 툴팁 DOM 엘리먼트
         const tip = document.createElement('div')
         tip.style.cssText = [
-          'background:#111827','color:white',
+          'background:#111827', 'color:white',
           'padding:4px 10px',
           'border-radius:8px',
-          'font-size:11px','font-weight:600',
+          'font-size:11px', 'font-weight:600',
           'white-space:nowrap',
           'pointer-events:none',
           'box-shadow:0 2px 8px rgba(0,0,0,0.3)',
@@ -103,7 +98,7 @@ export default function ProgramsPage() {
 
         const arrow = document.createElement('span')
         arrow.style.cssText = [
-          'position:absolute','top:100%','left:50%',
+          'position:absolute', 'top:100%', 'left:50%',
           'transform:translateX(-50%)',
           'border:5px solid transparent',
           'border-top-color:#111827',
@@ -113,8 +108,6 @@ export default function ProgramsPage() {
         const tipOverlay = new kakao.maps.CustomOverlay({
           position, content: tip, yAnchor: 2.4, xAnchor: 0.5, zIndex: 5,
         })
-
-        // 마커 오버레이
         new kakao.maps.CustomOverlay({
           position, content: el, yAnchor: 0.5, xAnchor: 0.5, zIndex: 4,
         }).setMap(map)
@@ -125,105 +118,88 @@ export default function ProgramsPage() {
             orgCardRefs.current[org.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
           }, 80)
         })
-        el.addEventListener('mouseenter', () => {
-          tipOverlay.setMap(map)
-          el.style.transform = 'scale(1.35)'
-        })
-        el.addEventListener('mouseleave', () => {
-          tipOverlay.setMap(null)
-          el.style.transform = 'scale(1)'
+        el.addEventListener('mouseenter', () => { tipOverlay.setMap(map); el.style.transform = 'scale(1.35)' })
+        el.addEventListener('mouseleave', () => { tipOverlay.setMap(null); el.style.transform = 'scale(1)' })
+      }
+
+      // 주소 → 좌표 변환 후 마커 배치
+      ORGANIZATIONS.forEach(org => {
+        const address = ORG_ADDRESSES[org.id]
+        if (!address) return
+
+        geocoder.addressSearch(address, (result: any[], status: any) => {
+          if (status !== kakao.maps.services.Status.OK || !result[0]) {
+            console.warn(`[카카오맵] 주소 변환 실패: ${org.name} — ${address}`)
+            return
+          }
+          const position = new kakao.maps.LatLng(
+            parseFloat(result[0].y),
+            parseFloat(result[0].x),
+          )
+          placeMarker(org, position)
         })
       })
 
-        mapReady.current = true
-        console.log('[카카오맵] 초기화 완료')
-      } catch (e) {
-        console.error('[카카오맵] 초기화 오류:', e)
-        setMapError('지도를 초기화하는 중 오류가 발생했습니다.')
-      }
+      mapReady.current = true
+    } catch (e) {
+      console.error('[카카오맵] 초기화 오류:', e)
+      setMapError('지도를 초기화하는 중 오류가 발생했습니다.')
     }
-
-    // 이미 로드된 SDK 재사용
-    if ((window as any).kakao?.maps) {
-      ;(window as any).kakao.maps.load(initMap)
-      return
-    }
-
-    // 중복 script 삽입 방지
-    if (document.getElementById('kakao-map-sdk')) return
-
-    const script = document.createElement('script')
-    script.id  = 'kakao-map-sdk'
-    script.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_APP_KEY}&autoload=false&libraries=services`
-    script.onload = () => {
-      console.log('[카카오맵] SDK 로드 성공, appkey:', KAKAO_APP_KEY)
-      ;(window as any).kakao.maps.load(initMap)
-    }
-    script.onerror = () => {
-      console.error('[카카오맵] SDK 로드 실패 ― 아래 사항을 확인하세요:')
-      console.error('  1) 카카오 개발자 콘솔 > 플랫폼 > Web에 현재 도메인 등록 여부')
-      console.error('  2) 현재 도메인:', window.location.origin)
-      console.error('  3) appkey:', KAKAO_APP_KEY)
-      setMapError(`지도를 불러오지 못했습니다. 카카오 개발자 콘솔(developers.kakao.com)에서 [Web 플랫폼] 도메인에 "${window.location.origin}"을 등록해주세요.`)
-    }
-    document.head.appendChild(script)
   }, [])
 
-  // ── 스탬프 수집 시 마커 색상 업데이트 ────────────────────────────
+  // 카카오 SDK가 준비되면 initMap 호출 — 라우트 재진입에도 안전
   useEffect(() => {
-    const stamped = new Set(stamps.map(s => s.organization_id))
-    Object.entries(markerEls.current).forEach(([idStr, el]) => {
-      const id = Number(idStr)
-      const done = stamped.has(id)
-      el.style.backgroundColor = done ? '#22C55E' : '#2563EB'
-      el.textContent = done ? '✓' : String(id)
-    })
-  }, [stamps])
-
-  function handleRatingSubmit(rating: number, review: string) {
-    if (!modalData || !profile) return
-    const newStamp: StampType = {
-      id: crypto.randomUUID(),
-      participant_id: profile.id,
-      program_id: modalData.program.id,
-      organization_id: modalData.org.id,
-      rating,
-      review,
-      program_name: modalData.program.name,
-      created_at: new Date().toISOString(),
+    function check() {
+      const k = (window as any).kakao
+      if (k && k.maps && k.maps.LatLng) {
+        initMap()
+        return true
+      }
+      return false
     }
-    saveStamp(newStamp)
-    setStamps(loadStamps())
-    setModalData(null)
-  }
+    if (check()) return
+    const id = setInterval(() => { if (check()) clearInterval(id) }, 100)
+    const timeoutId = setTimeout(() => {
+      clearInterval(id)
+      if (!mapReady.current) setMapError('지도 로드가 지연됩니다. 잠시 후 새로고침해주세요.')
+    }, 10000)
+    return () => { clearInterval(id); clearTimeout(timeoutId) }
+  }, [initMap])
 
   function formatDate(dateStr: string) {
     const d = new Date(dateStr)
     return `${d.getMonth() + 1}월 ${d.getDate()}일 (${['일','월','화','수','목','금','토'][d.getDay()]})`
   }
 
-  const stampedOrgIds = new Set(stamps.map(s => s.organization_id))
-
   return (
     <div className="py-5">
+      {/* 카카오맵 SDK — beforeInteractive로 hydration 전 로드, autoload 기본값 사용 */}
+      <Script
+        src={`https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_APP_KEY}&libraries=services`}
+        strategy="beforeInteractive"
+        onError={() => {
+          setMapError(
+            `지도를 불러오지 못했습니다. 카카오 개발자 콘솔(developers.kakao.com)에서 ` +
+            `[내 애플리케이션 → 플랫폼 → Web]에 "${typeof window !== 'undefined' ? window.location.origin : ''}"을 등록해주세요.`
+          )
+        }}
+      />
+
       {/* 헤더 */}
       <div className="px-4 mb-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-black text-gray-900">프로그램 목록</h1>
-            <p className="text-sm text-gray-500 mt-0.5">17개 기관 · {PROGRAMS.length}개 프로그램</p>
-          </div>
-          <div className="text-right">
-            <p className="text-2xl font-black text-blue-600">
-              {stamps.length}<span className="text-sm font-normal text-gray-400">/17</span>
-            </p>
-            <p className="text-xs text-gray-500">수집한 스탬프</p>
-          </div>
-        </div>
+        <h1 className="text-xl font-black text-gray-900">프로그램 목록</h1>
+        <p className="text-sm text-gray-500 mt-0.5">17개 기관 · {PROGRAMS.length}개 프로그램</p>
       </div>
 
+      {/* 안내 */}
+      <div className="mx-4 mb-4 bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 flex items-start gap-2">
+        <Info size={14} className="text-blue-500 flex-shrink-0 mt-0.5" />
+        <p className="text-xs text-blue-700 leading-relaxed">
+          스탬프는 기관 방문 후 담당자가 인증해 드립니다.
+        </p>
+      </div>
 
-      {/* ── 카카오맵 ── */}
+      {/* 카카오맵 */}
       <div className="mx-4 mb-4 rounded-2xl overflow-hidden shadow-sm border border-gray-200 h-[300px] relative">
         {mapError ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gray-50 px-6 text-center">
@@ -241,7 +217,6 @@ export default function ProgramsPage() {
         {ORGANIZATIONS.map(org => {
           const orgPrograms = PROGRAMS.filter(p => p.organization_id === org.id)
           const isExpanded  = expanded === org.id
-          const hasStamp    = stampedOrgIds.has(org.id)
 
           return (
             <div
@@ -249,42 +224,22 @@ export default function ProgramsPage() {
               ref={el => { orgCardRefs.current[org.id] = el }}
               className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden scroll-mt-16"
             >
-              {/* 기관 헤더 */}
               <button
                 onClick={() => setExpanded(isExpanded ? null : org.id)}
                 className="w-full flex items-center gap-3 p-4 hover:bg-gray-50 transition-colors text-left"
               >
                 <OrgIcon org={org} size={44} rounded="rounded-xl" />
-
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-bold text-gray-900 truncate">{org.name}</p>
-                    {hasStamp && (
-                      <span className="flex-shrink-0 bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5 rounded-full">
-                        ✓ 완료
-                      </span>
-                    )}
-                  </div>
+                  <p className="text-sm font-bold text-gray-900 truncate">{org.name}</p>
                   <p className="text-xs text-gray-500 mt-0.5">{org.category} · {orgPrograms.length}개 프로그램</p>
                 </div>
-
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {hasStamp ? (
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: org.color }}>
-                      <Stamp size={14} color="white" />
-                    </div>
-                  ) : (
-                    <div className="w-8 h-8 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center">
-                      <Stamp size={14} className="text-gray-300" />
-                    </div>
-                  )}
+                <div className="flex-shrink-0">
                   {isExpanded
                     ? <ChevronUp size={16} className="text-gray-400" />
                     : <ChevronDown size={16} className="text-gray-400" />}
                 </div>
               </button>
 
-              {/* 기관 소개 + 프로그램 */}
               {isExpanded && (
                 <div className="border-t border-gray-100">
                   <div className="px-4 py-3 bg-gray-50">
@@ -295,56 +250,46 @@ export default function ProgramsPage() {
                     </div>
                   </div>
 
+                  {/* 신청 링크 */}
+                  <div className="px-4 pt-3">
+                    {centerUrls[org.id] ? (
+                      <a
+                        href={centerUrls[org.id]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-2 w-full py-3 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all"
+                      >
+                        프로그램 신청하기
+                        <ExternalLink size={14} />
+                      </a>
+                    ) : (
+                      <div className="w-full py-3 bg-gray-100 text-gray-400 text-sm font-medium rounded-xl text-center">
+                        준비중
+                      </div>
+                    )}
+                  </div>
+
                   {orgPrograms.map((program, idx) => (
                     <div key={program.id} className={`px-4 py-3.5 ${idx > 0 ? 'border-t border-gray-100' : ''}`}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1">
-                          <p className="text-sm font-semibold text-gray-900">{program.name}</p>
-                          <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{program.description}</p>
-
-                          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
-                            <span className="flex items-center gap-1 text-xs text-gray-500">
-                              <Clock size={11} className="text-gray-400" />
-                              {formatDate(program.date)} · {program.time}
-                            </span>
-                            <span className="flex items-center gap-1 text-xs text-gray-500">
-                              <Users size={11} className="text-gray-400" />
-                              정원 {program.capacity}명
-                            </span>
-                            <span className="flex items-center gap-1 text-xs text-gray-500">
-                              <MapPin size={11} className="text-gray-400" />
-                              {program.location}
-                            </span>
-                          </div>
-
-                          <span className="inline-block mt-2 bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded-full font-medium">
-                            {program.target}
-                          </span>
-                        </div>
-
-                        <div className="flex-shrink-0">
-                          {hasStamp ? (
-                            <div
-                              className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                              style={{ backgroundColor: org.color }}
-                            >
-                              ✓
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => {
-                                if (!profile) { router.push('/login'); return }
-                                setModalData({ program, org })
-                              }}
-                              className="flex flex-col items-center gap-1 px-3 py-2 rounded-xl text-white text-xs font-semibold transition-all active:scale-95"
-                              style={{ backgroundColor: org.color }}
-                            >
-                              <Stamp size={16} />
-                              체험완료
-                            </button>
-                          )}
-                        </div>
+                      <p className="text-sm font-semibold text-gray-900">{program.name}</p>
+                      <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{program.description}</p>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+                        <span className="flex items-center gap-1 text-xs text-gray-500">
+                          <Clock size={11} className="text-gray-400" />
+                          {formatDate(program.date)} · {program.time}
+                        </span>
+                        <span className="flex items-center gap-1 text-xs text-gray-500">
+                          <Users size={11} className="text-gray-400" />
+                          정원 {program.capacity}명
+                        </span>
+                        <span className="flex items-center gap-1 text-xs text-gray-500">
+                          <MapPin size={11} className="text-gray-400" />
+                          {program.location}
+                        </span>
                       </div>
+                      <span className="inline-block mt-2 bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded-full font-medium">
+                        {program.target}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -354,15 +299,6 @@ export default function ProgramsPage() {
         })}
       </div>
 
-      {/* 별점 모달 */}
-      {modalData && (
-        <RatingModal
-          program={modalData.program}
-          organization={modalData.org}
-          onClose={() => setModalData(null)}
-          onSubmit={handleRatingSubmit}
-        />
-      )}
     </div>
   )
 }

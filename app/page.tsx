@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { MapPin, Calendar, Award, ChevronRight, Stamp } from 'lucide-react'
-import { loadStamps } from '@/lib/store'
+import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS } from '@/lib/data'
 import OrgIcon from '@/components/OrgIcon'
 import { useAuth } from '@/components/AuthProvider'
@@ -12,8 +12,17 @@ export default function HomePage() {
   const [stampCount, setStampCount] = useState(0)
 
   useEffect(() => {
-    setStampCount(loadStamps().length)
-  }, [])
+    if (!profile) { setStampCount(0); return }
+    supabase
+      .from('stamp_records')
+      .select('center_id', { count: 'exact', head: false })
+      .eq('participant_phone', profile.phone)
+      .then(({ data }) => {
+        // 기관 중복 제거 후 카운트
+        const uniqueOrgs = new Set((data ?? []).map((r: any) => r.center_id))
+        setStampCount(uniqueOrgs.size)
+      })
+  }, [profile])
 
   const progress = Math.round((stampCount / 17) * 100)
 
@@ -24,29 +33,65 @@ export default function HomePage() {
   return (
     <div className="px-4 py-5 space-y-5">
       {/* 히어로 배너 */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 p-6 text-white">
-        <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-16 translate-x-16" />
-        <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full translate-y-12 -translate-x-10" />
+      <div className="relative overflow-hidden rounded-3xl text-white" style={{ backgroundColor: '#1a3a8c' }}>
+        {/* 배경 원형 패턴 */}
+        <div className="absolute top-[-60px] right-[-60px] w-64 h-64 rounded-full border-[40px] border-white/[0.06]" />
+        <div className="absolute bottom-[-30px] left-[-40px] w-48 h-48 rounded-full border-[30px] border-white/[0.05]" />
+        <div className="absolute top-1/2 right-[30%] w-20 h-20 rounded-full border-[14px] border-white/[0.04]" />
 
-        <div className="relative">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="bg-white/20 text-white text-xs font-semibold px-3 py-1 rounded-full">
-              2026 부산 청소년
+        {/* 스탬프 도장 원형 장식 (오른쪽) */}
+        <div className="absolute right-4 top-0 bottom-12 flex flex-col justify-center gap-2.5 pointer-events-none">
+          <div className="w-[54px] h-[54px] rounded-full border-2 border-dashed border-blue-300/50 bg-blue-400/20 flex flex-col items-center justify-center">
+            <span className="text-sm font-black leading-none text-blue-100">01</span>
+            <span className="text-[7px] text-blue-200/70 tracking-widest font-bold mt-0.5">STAMP</span>
+          </div>
+          <div className="w-[54px] h-[54px] rounded-full border-2 border-dashed border-orange-300/60 bg-orange-400/25 flex flex-col items-center justify-center">
+            <span className="text-sm font-black leading-none text-orange-100">07</span>
+            <span className="text-[7px] text-orange-200/70 tracking-widest font-bold mt-0.5">STAMP</span>
+          </div>
+          <div className="w-[54px] h-[54px] rounded-full border-2 border-dashed border-green-300/60 bg-green-400/25 flex flex-col items-center justify-center">
+            <span className="text-sm font-black leading-none text-green-100">17</span>
+            <span className="text-[7px] text-green-200/70 tracking-widest font-bold mt-0.5">STAMP</span>
+          </div>
+        </div>
+
+        {/* 메인 콘텐츠 */}
+        <div className="relative px-6 pt-6 pb-5 pr-[80px]">
+          {/* 운영기관 로고 */}
+          <div className="flex items-center gap-2 bg-white/15 rounded-full px-3 py-1 w-fit mb-3">
+            <div className="flex items-end gap-0.5" style={{ height: '18px' }}>
+              <div style={{ width: '5px', height: '12px', background: '#f5a623', borderRadius: '1px' }} />
+              <div style={{ width: '7px', height: '16px', background: '#1e40af', borderRadius: '1px' }} />
+              <div style={{ width: '5px', height: '12px', background: '#4caf50', borderRadius: '1px' }} />
+            </div>
+            <span className="text-white text-xs font-medium">부산광역시청소년수련시설협회</span>
+          </div>
+
+          {/* 2026 부산 태그 */}
+          <div className="mb-2">
+            <span className="inline-block bg-orange-500 text-white text-xs font-bold px-3 py-1 rounded-full tracking-wide">
+              2026 부산
             </span>
           </div>
-          <h1 className="text-2xl font-black leading-tight mb-1">
-            B.Y.C.T<br />
-            <span className="text-blue-200">스탬프투어</span>
+
+          {/* 메인 타이틀 */}
+          <h1 className="text-3xl font-bold text-white leading-tight mb-2 whitespace-nowrap">
+            B.Y.C.T 스탬프투어
           </h1>
-          <p className="text-sm text-blue-100 mb-5 leading-relaxed">
+
+          {/* 서브텍스트 */}
+          <p className="text-sm text-blue-100/90 mb-5 leading-relaxed">
             부산 17개 기관을 체험하고<br />
             스탬프를 모아 완주 인증을 받으세요!
           </p>
+
+          {/* 버튼 */}
           <div className="flex items-center gap-3">
             {!loading && !profile && (
               <Link
                 href="/login"
-                className="flex items-center gap-1.5 bg-white text-blue-700 font-semibold text-sm px-4 py-2.5 rounded-xl hover:bg-blue-50 transition-colors"
+                className="flex items-center gap-1.5 bg-white font-semibold text-sm px-4 py-2.5 rounded-xl hover:bg-blue-50 transition-colors"
+                style={{ color: '#1a3a8c' }}
               >
                 지금 참가하기
                 <ChevronRight size={15} />
@@ -54,11 +99,20 @@ export default function HomePage() {
             )}
             <Link
               href="/programs"
-              className="flex items-center gap-1.5 bg-white/15 text-white font-medium text-sm px-4 py-2.5 rounded-xl hover:bg-white/25 transition-colors"
+              className="flex items-center gap-1.5 border border-white/50 text-white font-medium text-sm px-4 py-2.5 rounded-xl hover:bg-white/10 transition-colors"
             >
               프로그램 보기
             </Link>
           </div>
+        </div>
+
+        {/* 하단 정보바 */}
+        <div className="bg-black/25 px-6 py-2.5 flex items-center justify-around">
+          <span className="text-xs text-white/80 font-medium">🏢 17개 참여기관</span>
+          <span className="w-px h-3 bg-white/20" />
+          <span className="text-xs text-white/80 font-medium">📅 6월~11월</span>
+          <span className="w-px h-3 bg-white/20" />
+          <span className="text-xs text-white/80 font-medium">📍 부산 전역</span>
         </div>
       </div>
 
@@ -124,7 +178,7 @@ export default function HomePage() {
         </div>
         <div className="bg-white rounded-2xl p-4 text-center shadow-sm border border-gray-100">
           <Calendar className="mx-auto text-blue-500 mb-1.5" size={22} />
-          <p className="text-xl font-black text-gray-900">7~8월</p>
+          <p className="text-xl font-black text-gray-900">6~11월</p>
           <p className="text-xs text-gray-500 mt-0.5">운영기간</p>
         </div>
         <div className="bg-white rounded-2xl p-4 text-center shadow-sm border border-gray-100">

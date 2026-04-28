@@ -31,6 +31,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
+      // 옛 데모 모드 키 정리 — 스탬프는 stamp_records 테이블이 단일 진실
+      localStorage.removeItem('byct_stamps')
+      localStorage.removeItem('byct_participant')
+    } catch {}
+    try {
       const raw = localStorage.getItem(AUTH_KEY)
       if (raw) setProfile(JSON.parse(raw))
     } catch {}

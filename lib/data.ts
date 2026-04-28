@@ -59,7 +59,7 @@ export const ORGANIZATIONS: Organization[] = [
     color: "#3B82F6",
     bgColor: "bg-blue-500",
     textColor: "text-blue-600",
-    logo: "/logos/동래구청소년수련관.png",
+    logo: "/logos/동래구청소년센터.png",
   },
   {
     id: 6,
@@ -119,6 +119,7 @@ export const ORGANIZATIONS: Organization[] = [
     color: "#06B6D4",
     bgColor: "bg-cyan-500",
     textColor: "text-cyan-600",
+    logo: "/logos/북구청소년문화의집.png",
   },
   {
     id: 11,
@@ -178,7 +179,7 @@ export const ORGANIZATIONS: Organization[] = [
     color: "#16A34A",
     bgColor: "bg-green-600",
     textColor: "text-green-700",
-    logo: "/logos/그랜드모먼트유스호스텔.png",
+    logo: "/logos/그랜드모먼트 유스호스텔.png",
   },
   {
     id: 16,

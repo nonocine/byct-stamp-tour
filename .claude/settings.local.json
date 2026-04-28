@@ -10,7 +10,8 @@
       "Bash(gh --version)",
       "Bash(gh repo *)",
       "Bash(npx tsc *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(npm install *)"
     ]
   }
 }

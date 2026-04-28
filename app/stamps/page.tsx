@@ -1,21 +1,45 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Star, Award, ChevronRight, LogIn } from 'lucide-react'
-import { loadStamps } from '@/lib/store'
+import { Award, ChevronRight, LogIn, RefreshCw, Info } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS, getOrgById } from '@/lib/data'
 import StampGrid from '@/components/StampGrid'
 import OrgIcon from '@/components/OrgIcon'
-import type { Stamp } from '@/lib/types'
 import { useAuth } from '@/components/AuthProvider'
+
+interface StampRecord {
+  id: string
+  center_id: number
+  center_name: string
+  approved_by: string
+  stamped_at: string
+}
 
 export default function StampsPage() {
   const { profile, loading } = useAuth()
-  const [stamps, setStamps] = useState<Stamp[]>([])
+  const [records, setRecords] = useState<StampRecord[]>([])
+  const [fetching, setFetching] = useState(false)
 
   useEffect(() => {
-    setStamps(loadStamps())
-  }, [])
+    if (!profile) return
+    fetchStamps()
+  }, [profile]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function fetchStamps() {
+    if (!profile) return
+    setFetching(true)
+    const { data, error } = await supabase
+      .from('stamp_records')
+      .select('id, center_id, center_name, approved_by, stamped_at')
+      .eq('participant_id', profile.id)
+      .order('stamped_at', { ascending: false })
+    console.log('participant.id:', profile.id)
+    console.log('stamp data:', data)
+    console.log('stamp error:', error)
+    setRecords(data ?? [])
+    setFetching(false)
+  }
 
   if (loading) return null
 
@@ -38,21 +62,32 @@ export default function StampsPage() {
     )
   }
 
-  const count = stamps.length
+  const stampedOrgIds = new Set(records.map(r => r.center_id))
+  const count = stampedOrgIds.size
   const progress = Math.round((count / 17) * 100)
-  const avgRating = stamps.length > 0
-    ? (stamps.reduce((sum, s) => sum + s.rating, 0) / stamps.length).toFixed(1)
-    : '—'
   const isComplete = count >= 17
-
   const displayPhone = profile.phone.replace(/(\d{3})(\d{4})(\d{4})/, '$1-$2-$3')
+
+  function formatDate(iso: string) {
+    const d = new Date(iso)
+    return `${d.getMonth() + 1}/${d.getDate()}`
+  }
 
   return (
     <div className="px-4 py-5 space-y-5">
       {/* 헤더 */}
-      <div>
-        <h1 className="text-xl font-black text-gray-900">내 스탬프</h1>
-        <p className="text-sm text-gray-500 mt-0.5">{profile.name} · {displayPhone}</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-black text-gray-900">내 스탬프</h1>
+          <p className="text-sm text-gray-500 mt-0.5">{profile.name} · {displayPhone}</p>
+        </div>
+        <button
+          onClick={fetchStamps}
+          disabled={fetching}
+          className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
+        >
+          <RefreshCw size={16} className={fetching ? 'animate-spin' : ''} />
+        </button>
       </div>
 
       {/* 완주 배너 */}
@@ -63,6 +98,14 @@ export default function StampsPage() {
           <p className="text-sm text-yellow-100 mt-1">17개 기관을 모두 체험하셨습니다!</p>
         </div>
       )}
+
+      {/* 안내 */}
+      <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 flex items-start gap-2">
+        <Info size={14} className="text-blue-500 flex-shrink-0 mt-0.5" />
+        <p className="text-xs text-blue-700 leading-relaxed">
+          스탬프는 기관 방문 후 담당자가 인증해 드립니다.
+        </p>
+      </div>
 
       {/* 진행 현황 카드 */}
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
@@ -88,14 +131,10 @@ export default function StampsPage() {
           )}
         </div>
 
-        <div className="grid grid-cols-3 divide-x divide-gray-100 text-center">
+        <div className="grid grid-cols-2 divide-x divide-gray-100 text-center">
           <div>
             <p className="text-xl font-black text-blue-600">{count}</p>
             <p className="text-xs text-gray-400">수집 스탬프</p>
-          </div>
-          <div>
-            <p className="text-xl font-black text-amber-500">{avgRating}</p>
-            <p className="text-xs text-gray-400">평균 별점</p>
           </div>
           <div>
             <p className="text-xl font-black text-green-600">{17 - count}</p>
@@ -107,50 +146,44 @@ export default function StampsPage() {
       {/* 스탬프 그리드 */}
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
         <h2 className="text-sm font-bold text-gray-700 mb-4">스탬프 현황</h2>
-        <StampGrid organizations={ORGANIZATIONS} stamps={stamps} />
+        {fetching && records.length === 0 ? (
+          <div className="py-6 flex justify-center">
+            <RefreshCw size={18} className="animate-spin text-gray-300" />
+          </div>
+        ) : (
+          <StampGrid organizations={ORGANIZATIONS} stampedOrgIds={stampedOrgIds} />
+        )}
       </div>
 
       {/* 체험 기록 */}
-      {stamps.length > 0 && (
+      {records.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100">
             <h2 className="text-sm font-bold text-gray-700">체험 기록</h2>
           </div>
           <div className="divide-y divide-gray-50">
-            {[...stamps]
-              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-              .map(stamp => {
-                const org = getOrgById(stamp.organization_id)
-                if (!org) return null
-                const date = new Date(stamp.created_at)
-                return (
-                  <div key={stamp.id} className="px-5 py-3.5 flex items-center gap-3">
-                    <OrgIcon org={org} size={36} rounded="rounded-xl" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 truncate">{stamp.program_name}</p>
-                      <p className="text-xs text-gray-400">{org.name}</p>
-                      {stamp.review && (
-                        <p className="text-xs text-gray-500 mt-0.5 italic">"{stamp.review}"</p>
-                      )}
-                    </div>
-                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                      <div className="flex items-center gap-0.5">
-                        {[...Array(5)].map((_, i) => (
-                          <Star
-                            key={i}
-                            size={10}
-                            fill={i < stamp.rating ? '#F59E0B' : 'none'}
-                            stroke={i < stamp.rating ? '#F59E0B' : '#D1D5DB'}
-                          />
-                        ))}
-                      </div>
-                      <p className="text-xs text-gray-400">
-                        {date.getMonth() + 1}/{date.getDate()}
-                      </p>
-                    </div>
+            {records.map(record => {
+              const org = getOrgById(record.center_id)
+              if (!org) return null
+              return (
+                <div key={record.id} className="px-5 py-3.5 flex items-center gap-3">
+                  <OrgIcon org={org} size={36} rounded="rounded-xl" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{org.name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">담당: {record.approved_by}</p>
                   </div>
-                )
-              })}
+                  <div className="flex-shrink-0 text-right">
+                    <div
+                      className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold mb-1"
+                      style={{ backgroundColor: org.color }}
+                    >
+                      ✓
+                    </div>
+                    <p className="text-xs text-gray-400">{formatDate(record.stamped_at)}</p>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
