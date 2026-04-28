@@ -1,12 +1,13 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { MapPin, Clock, Users, ChevronDown, ChevronUp, Stamp } from 'lucide-react'
 import RatingModal from '@/components/RatingModal'
 import OrgIcon from '@/components/OrgIcon'
 import { ORGANIZATIONS, PROGRAMS } from '@/lib/data'
-import { loadParticipant, loadStamps, saveStamp } from '@/lib/store'
-import type { Participant, Stamp as StampType, Program, Organization } from '@/lib/types'
-import Link from 'next/link'
+import { loadStamps, saveStamp } from '@/lib/store'
+import type { Stamp as StampType, Program, Organization } from '@/lib/types'
+import { useAuth } from '@/components/AuthProvider'
 
 const KAKAO_APP_KEY = 'b15da2a5d31a20e1b272e534b9a24594'
 
@@ -31,7 +32,8 @@ const ORG_COORDS: Record<number, { lat: number; lng: number }> = {
 }
 
 export default function ProgramsPage() {
-  const [participant, setParticipant] = useState<Participant | null>(null)
+  const router = useRouter()
+  const { profile } = useAuth()
   const [stamps, setStamps] = useState<StampType[]>([])
   const [expanded, setExpanded] = useState<number | null>(null)
   const [modalData, setModalData] = useState<{ program: Program; org: Organization } | null>(null)
@@ -43,7 +45,6 @@ export default function ProgramsPage() {
   const [mapError, setMapError] = useState<string | null>(null)
 
   useEffect(() => {
-    setParticipant(loadParticipant())
     setStamps(loadStamps())
   }, [])
 
@@ -180,10 +181,10 @@ export default function ProgramsPage() {
   }, [stamps])
 
   function handleRatingSubmit(rating: number, review: string) {
-    if (!modalData || !participant) return
+    if (!modalData || !profile) return
     const newStamp: StampType = {
       id: crypto.randomUUID(),
-      participant_id: participant.id,
+      participant_id: profile.id,
       program_id: modalData.program.id,
       organization_id: modalData.org.id,
       rating,
@@ -221,13 +222,6 @@ export default function ProgramsPage() {
         </div>
       </div>
 
-      {/* 참가자 미등록 알림 */}
-      {!participant && (
-        <div className="mx-4 mb-3 bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-center justify-between">
-          <p className="text-xs text-amber-800 font-medium">스탬프를 받으려면 먼저 등록해주세요</p>
-          <Link href="/register" className="text-xs text-amber-700 font-bold underline">등록하기</Link>
-        </div>
-      )}
 
       {/* ── 카카오맵 ── */}
       <div className="mx-4 mb-4 rounded-2xl overflow-hidden shadow-sm border border-gray-200 h-[300px] relative">
@@ -328,27 +322,28 @@ export default function ProgramsPage() {
                           </span>
                         </div>
 
-                        {participant && (
-                          <div className="flex-shrink-0">
-                            {hasStamp ? (
-                              <div
-                                className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                                style={{ backgroundColor: org.color }}
-                              >
-                                ✓
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => setModalData({ program, org })}
-                                className="flex flex-col items-center gap-1 px-3 py-2 rounded-xl text-white text-xs font-semibold transition-all active:scale-95"
-                                style={{ backgroundColor: org.color }}
-                              >
-                                <Stamp size={16} />
-                                체험완료
-                              </button>
-                            )}
-                          </div>
-                        )}
+                        <div className="flex-shrink-0">
+                          {hasStamp ? (
+                            <div
+                              className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                              style={{ backgroundColor: org.color }}
+                            >
+                              ✓
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                if (!profile) { router.push('/login'); return }
+                                setModalData({ program, org })
+                              }}
+                              className="flex flex-col items-center gap-1 px-3 py-2 rounded-xl text-white text-xs font-semibold transition-all active:scale-95"
+                              style={{ backgroundColor: org.color }}
+                            >
+                              <Stamp size={16} />
+                              체험완료
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}

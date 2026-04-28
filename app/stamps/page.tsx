@@ -1,35 +1,38 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Star, Award, ChevronRight } from 'lucide-react'
-import { loadParticipant, loadStamps } from '@/lib/store'
+import { Star, Award, ChevronRight, LogIn } from 'lucide-react'
+import { loadStamps } from '@/lib/store'
 import { ORGANIZATIONS, getOrgById } from '@/lib/data'
 import StampGrid from '@/components/StampGrid'
 import OrgIcon from '@/components/OrgIcon'
-import type { Participant, Stamp } from '@/lib/types'
+import type { Stamp } from '@/lib/types'
+import { useAuth } from '@/components/AuthProvider'
 
 export default function StampsPage() {
-  const [participant, setParticipant] = useState<Participant | null>(null)
+  const { profile, loading } = useAuth()
   const [stamps, setStamps] = useState<Stamp[]>([])
 
   useEffect(() => {
-    setParticipant(loadParticipant())
     setStamps(loadStamps())
   }, [])
 
-  if (!participant) {
+  if (loading) return null
+
+  if (!profile) {
     return (
       <div className="px-4 py-10 flex flex-col items-center justify-center min-h-[60vh] text-center">
-        <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-          <Award size={36} className="text-gray-300" />
+        <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mb-4">
+          <Award size={36} className="text-blue-300" />
         </div>
-        <h2 className="text-lg font-bold text-gray-700 mb-1">참가 등록이 필요해요</h2>
-        <p className="text-sm text-gray-400 mb-5">등록 후 스탬프를 모아보세요!</p>
+        <h2 className="text-lg font-bold text-gray-700 mb-1">로그인이 필요합니다</h2>
+        <p className="text-sm text-gray-400 mb-5">로그인 후 스탬프를 모아보세요!</p>
         <Link
-          href="/register"
-          className="bg-blue-600 text-white font-semibold px-6 py-3 rounded-2xl hover:bg-blue-700 transition-colors"
+          href="/login"
+          className="flex items-center gap-2 bg-blue-600 text-white font-semibold px-6 py-3 rounded-2xl hover:bg-blue-700 transition-colors"
         >
-          참가 등록하기
+          <LogIn size={16} />
+          로그인 / 회원가입
         </Link>
       </div>
     )
@@ -42,12 +45,14 @@ export default function StampsPage() {
     : '—'
   const isComplete = count >= 17
 
+  const displayPhone = profile.phone.replace(/(\d{3})(\d{4})(\d{4})/, '$1-$2-$3')
+
   return (
     <div className="px-4 py-5 space-y-5">
       {/* 헤더 */}
       <div>
         <h1 className="text-xl font-black text-gray-900">내 스탬프</h1>
-        <p className="text-sm text-gray-500 mt-0.5">{participant.name} · {participant.school}</p>
+        <p className="text-sm text-gray-500 mt-0.5">{profile.name} · {displayPhone}</p>
       </div>
 
       {/* 완주 배너 */}
@@ -66,7 +71,6 @@ export default function StampsPage() {
           <span className="text-sm text-gray-500">{count} / 17</span>
         </div>
 
-        {/* 진행 바 */}
         <div className="relative h-4 bg-gray-100 rounded-full overflow-hidden mb-3">
           <div
             className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
@@ -106,7 +110,7 @@ export default function StampsPage() {
         <StampGrid organizations={ORGANIZATIONS} stamps={stamps} />
       </div>
 
-      {/* 수집한 스탬프 상세 목록 */}
+      {/* 체험 기록 */}
       {stamps.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100">

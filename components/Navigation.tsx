@@ -1,8 +1,9 @@
 'use client'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { Home, BookOpen, Stamp, BarChart3, UserPlus } from 'lucide-react'
+import { usePathname, useRouter } from 'next/navigation'
+import { Home, BookOpen, Stamp, BarChart3, LogOut, LogIn } from 'lucide-react'
 import clsx from 'clsx'
+import { useAuth } from '@/components/AuthProvider'
 
 const navItems = [
   { href: '/', label: '홈', icon: Home },
@@ -13,6 +14,13 @@ const navItems = [
 
 export default function Navigation() {
   const pathname = usePathname()
+  const router = useRouter()
+  const { profile, loading, signOut } = useAuth()
+
+  function handleSignOut() {
+    signOut()
+    router.push('/login')
+  }
 
   return (
     <>
@@ -25,13 +33,31 @@ export default function Navigation() {
             </div>
             <span className="font-bold text-gray-900 text-sm">B.Y.C.T 스탬프투어</span>
           </Link>
-          <Link
-            href="/register"
-            className="flex items-center gap-1.5 bg-blue-600 text-white text-xs font-medium px-3 py-1.5 rounded-full hover:bg-blue-700 transition-colors"
-          >
-            <UserPlus size={13} />
-            참가등록
-          </Link>
+
+          {!loading && (
+            profile ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-600 font-medium hidden sm:block">
+                  {profile.name} 님
+                </span>
+                <button
+                  onClick={handleSignOut}
+                  className="flex items-center gap-1.5 bg-gray-100 text-gray-600 text-xs font-medium px-3 py-1.5 rounded-full hover:bg-gray-200 transition-colors"
+                >
+                  <LogOut size={13} />
+                  로그아웃
+                </button>
+              </div>
+            ) : (
+              <Link
+                href="/login"
+                className="flex items-center gap-1.5 bg-blue-600 text-white text-xs font-medium px-3 py-1.5 rounded-full hover:bg-blue-700 transition-colors"
+              >
+                <LogIn size={13} />
+                로그인
+              </Link>
+            )
+          )}
         </div>
       </header>
 
@@ -47,9 +73,7 @@ export default function Navigation() {
                   href={href}
                   className={clsx(
                     'flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-all',
-                    active
-                      ? 'text-blue-600'
-                      : 'text-gray-400 hover:text-gray-600'
+                    active ? 'text-blue-600' : 'text-gray-400 hover:text-gray-600'
                   )}
                 >
                   <Icon size={20} strokeWidth={active ? 2.5 : 1.8} />
