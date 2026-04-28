@@ -1,11 +1,13 @@
 'use client'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import dynamic from 'next/dynamic'
 import { MapPin, Clock, Users, ChevronDown, ChevronUp, ExternalLink, Info } from 'lucide-react'
 import OrgIcon from '@/components/OrgIcon'
 import { ORGANIZATIONS, PROGRAMS } from '@/lib/data'
 import { supabase } from '@/lib/supabase'
+import type { KakaoMapOrg } from '@/components/KakaoMap'
 
-const KAKAO_APP_KEY = 'b15da2a5d31a20e1b272e534b9a24594'
+const KakaoMap = dynamic(() => import('@/components/KakaoMap'), { ssr: false })
 
 const ORG_ADDRESSES: Record<number, string> = {
   1:  '부산광역시 해운대구 재반로 151-21',
@@ -31,11 +33,7 @@ export default function ProgramsPage() {
   const [expanded, setExpanded] = useState<number | null>(null)
   const [centerUrls, setCenterUrls] = useState<Record<number, string>>({})
 
-  const orgCardRefs  = useRef<Record<number, HTMLDivElement | null>>({})
-  const mapContainer = useRef<HTMLDivElement>(null)
-  const markerEls    = useRef<Record<number, HTMLDivElement>>({})
-  const mapReady     = useRef(false)
-  const [mapError, setMapError] = useState<string | null>(null)
+  const orgCardRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
   useEffect(() => {
     loadCenterUrls()
@@ -51,136 +49,18 @@ export default function ProgramsPage() {
     setCenterUrls(map)
   }
 
-  // ── 카카오맵 초기화 (Script onLoad 에서 호출) ──────────────────────
-  const initMap = useCallback(() => {
-    if (mapReady.current || !mapContainer.current) return
-    try {
-      const kakao = (window as any).kakao
+  function handleMarkerClick(orgId: number) {
+    setExpanded(orgId)
+    setTimeout(() => {
+      orgCardRefs.current[orgId]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 80)
+  }
 
-      const map = new kakao.maps.Map(mapContainer.current, {
-        center: new kakao.maps.LatLng(35.1796, 129.0756),
-        level: 8,
-      })
-
-      const geocoder = new kakao.maps.services.Geocoder()
-
-      // 마커 생성 헬퍼
-      function placeMarker(org: (typeof ORGANIZATIONS)[0], position: any) {
-        const el = document.createElement('div')
-        el.style.cssText = [
-          'width:26px', 'height:26px',
-          'background:#2563EB',
-          'border:2.5px solid white',
-          'border-radius:50%',
-          'display:flex', 'align-items:center', 'justify-content:center',
-          'color:white', 'font-size:10px', 'font-weight:900',
-          'box-shadow:0 2px 8px rgba(0,0,0,0.35)',
-          'cursor:pointer',
-          'transition:transform 0.15s, background-color 0.2s',
-          'user-select:none',
-        ].join(';')
-        el.textContent = String(org.id)
-        markerEls.current[org.id] = el
-
-        const tip = document.createElement('div')
-        tip.style.cssText = [
-          'background:#111827', 'color:white',
-          'padding:4px 10px',
-          'border-radius:8px',
-          'font-size:11px', 'font-weight:600',
-          'white-space:nowrap',
-          'pointer-events:none',
-          'box-shadow:0 2px 8px rgba(0,0,0,0.3)',
-          'position:relative',
-        ].join(';')
-        tip.textContent = org.name
-
-        const arrow = document.createElement('span')
-        arrow.style.cssText = [
-          'position:absolute', 'top:100%', 'left:50%',
-          'transform:translateX(-50%)',
-          'border:5px solid transparent',
-          'border-top-color:#111827',
-        ].join(';')
-        tip.appendChild(arrow)
-
-        const tipOverlay = new kakao.maps.CustomOverlay({
-          position, content: tip, yAnchor: 2.4, xAnchor: 0.5, zIndex: 5,
-        })
-        new kakao.maps.CustomOverlay({
-          position, content: el, yAnchor: 0.5, xAnchor: 0.5, zIndex: 4,
-        }).setMap(map)
-
-        el.addEventListener('click', () => {
-          setExpanded(org.id)
-          setTimeout(() => {
-            orgCardRefs.current[org.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-          }, 80)
-        })
-        el.addEventListener('mouseenter', () => { tipOverlay.setMap(map); el.style.transform = 'scale(1.35)' })
-        el.addEventListener('mouseleave', () => { tipOverlay.setMap(null); el.style.transform = 'scale(1)' })
-      }
-
-      // 주소 → 좌표 변환 후 마커 배치
-      ORGANIZATIONS.forEach(org => {
-        const address = ORG_ADDRESSES[org.id]
-        if (!address) return
-
-        geocoder.addressSearch(address, (result: any[], status: any) => {
-          if (status !== kakao.maps.services.Status.OK || !result[0]) {
-            console.warn(`[카카오맵] 주소 변환 실패: ${org.name} — ${address}`)
-            return
-          }
-          const position = new kakao.maps.LatLng(
-            parseFloat(result[0].y),
-            parseFloat(result[0].x),
-          )
-          placeMarker(org, position)
-        })
-      })
-
-      mapReady.current = true
-    } catch (e) {
-      console.error('[카카오맵] 초기화 오류:', e)
-      setMapError('지도를 초기화하는 중 오류가 발생했습니다.')
-    }
-  }, [])
-
-  // 카카오맵 SDK 동적 로드 — autoload=false로 document.write 회피
-  useEffect(() => {
-    const SCRIPT_ID = 'kakao-maps-sdk'
-
-    function runInit() {
-      const k = (window as any).kakao
-      if (k && k.maps) k.maps.load(() => initMap())
-    }
-
-    // 이미 로드되어 있으면 즉시 init
-    if ((window as any).kakao && (window as any).kakao.maps) {
-      runInit()
-      return
-    }
-
-    // 스크립트가 이미 추가되어 있으면 load 이벤트만 구독
-    const existing = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null
-    if (existing) {
-      existing.addEventListener('load', runInit)
-      return () => existing.removeEventListener('load', runInit)
-    }
-
-    const script = document.createElement('script')
-    script.id = SCRIPT_ID
-    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_APP_KEY}&libraries=services&autoload=false`
-    script.async = true
-    script.onload = runInit
-    script.onerror = () => {
-      setMapError(
-        `지도를 불러오지 못했습니다. 카카오 개발자 콘솔(developers.kakao.com)에서 ` +
-        `[내 애플리케이션 → 플랫폼 → Web]에 "${typeof window !== 'undefined' ? window.location.origin : ''}"을 등록해주세요.`
-      )
-    }
-    document.head.appendChild(script)
-  }, [initMap])
+  const mapOrgs: KakaoMapOrg[] = ORGANIZATIONS.map(o => ({
+    id: o.id,
+    name: o.name,
+    address: ORG_ADDRESSES[o.id] ?? '',
+  }))
 
   function formatDate(dateStr: string) {
     const d = new Date(dateStr)
@@ -205,15 +85,7 @@ export default function ProgramsPage() {
 
       {/* 카카오맵 */}
       <div className="mx-4 mb-4 rounded-2xl overflow-hidden shadow-sm border border-gray-200 h-[300px] relative">
-        {mapError ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gray-50 px-6 text-center">
-            <span className="text-2xl">🗺️</span>
-            <p className="text-sm font-semibold text-gray-700">지도 로드 실패</p>
-            <p className="text-xs text-gray-500 leading-relaxed">{mapError}</p>
-          </div>
-        ) : (
-          <div ref={mapContainer} className="w-full h-full" />
-        )}
+        <KakaoMap organizations={mapOrgs} onMarkerClick={handleMarkerClick} />
       </div>
 
       {/* 기관 목록 */}
