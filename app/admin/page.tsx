@@ -108,10 +108,14 @@ export default function AdminPage() {
   const [foundProfile, setFoundProfile] = useState<ProfileResult | null>(null)
   const [selectedOrgId, setSelectedOrgId] = useState<number | null>(null)
   const [alreadyStamped, setAlreadyStamped] = useState(false)
+  const [existingStampId, setExistingStampId] = useState<string | null>(null)
+  const [existingStampDate, setExistingStampDate] = useState<string | null>(null)
   const [searchError, setSearchError] = useState('')
   const [searching, setSearching] = useState(false)
   const [stamping, setStamping] = useState(false)
   const [stampSuccess, setStampSuccess] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelSuccess, setCancelSuccess] = useState(false)
 
   // ── 참가자 관리 ──────────────────────────────────────────────────────────
   const [pSearch, setPSearch] = useState('')
@@ -526,14 +530,24 @@ export default function AdminPage() {
 
   // ── 스탬프 찍기 ──────────────────────────────────────────────────────────
 
-  async function checkDuplicate(profilePhone: string, orgId: number) {
+  async function checkDuplicate(profileId: string, orgId: number) {
     const { data } = await supabase
       .from('stamp_records')
-      .select('id')
-      .eq('participant_phone', profilePhone)
+      .select('id, stamped_at')
+      .eq('participant_id', profileId)
       .eq('center_id', orgId)
       .maybeSingle()
     setAlreadyStamped(!!data)
+    setExistingStampId(data?.id ?? null)
+    setExistingStampDate(data?.stamped_at ?? null)
+  }
+
+  function resetStampStatus() {
+    setAlreadyStamped(false)
+    setExistingStampId(null)
+    setExistingStampDate(null)
+    setStampSuccess(false)
+    setCancelSuccess(false)
   }
 
   async function handleSearch() {
@@ -541,8 +555,7 @@ export default function AdminPage() {
     setSearching(true)
     setSearchError('')
     setFoundProfile(null)
-    setAlreadyStamped(false)
-    setStampSuccess(false)
+    resetStampStatus()
     try {
       const raw = searchPhone.replace(/\D/g, '')
       const { data: profile, error } = await supabase
@@ -553,8 +566,8 @@ export default function AdminPage() {
       if (error) throw error
       if (!profile) { setSearchError('해당 전화번호로 등록된 참여자가 없습니다'); return }
       setFoundProfile(profile)
-      if (admin.role === 'center' && admin.center_id) await checkDuplicate(profile.phone, admin.center_id)
-      if (admin.role === 'super' && selectedOrgId) await checkDuplicate(profile.phone, selectedOrgId)
+      if (admin.role === 'center' && admin.center_id) await checkDuplicate(profile.id, admin.center_id)
+      if (admin.role === 'super' && selectedOrgId) await checkDuplicate(profile.id, selectedOrgId)
     } catch (e: any) {
       setSearchError(e.message ?? '오류가 발생했습니다')
     } finally {
@@ -564,9 +577,8 @@ export default function AdminPage() {
 
   async function handleOrgSelect(orgId: number) {
     setSelectedOrgId(orgId)
-    setAlreadyStamped(false)
-    setStampSuccess(false)
-    if (foundProfile) await checkDuplicate(foundProfile.phone, orgId)
+    resetStampStatus()
+    if (foundProfile) await checkDuplicate(foundProfile.id, orgId)
   }
 
   async function handleStamp() {
@@ -576,21 +588,44 @@ export default function AdminPage() {
     setStamping(true)
     setSearchError('')
     try {
-      const { error } = await supabase.from('stamp_records').insert({
+      const { data: inserted, error } = await supabase.from('stamp_records').insert({
         participant_id: foundProfile.id,
         participant_name: foundProfile.name,
         participant_phone: foundProfile.phone,
         center_id: selectedOrgId,
         center_name: org.name,
         approved_by: admin.name,
-      })
+      }).select('id, stamped_at').single()
       if (error) throw error
       setAlreadyStamped(true)
       setStampSuccess(true)
+      setCancelSuccess(false)
+      setExistingStampId(inserted?.id ?? null)
+      setExistingStampDate(inserted?.stamped_at ?? null)
     } catch (e: any) {
       setSearchError(e.message ?? '스탬프 발급에 실패했습니다')
     } finally {
       setStamping(false)
+    }
+  }
+
+  async function handleCancelStamp() {
+    if (!existingStampId || !foundProfile) return
+    if (!confirm('이 스탬프를 취소하시겠습니까?\n참가자에게 발급된 스탬프 기록이 삭제됩니다.')) return
+    setCancelling(true)
+    setSearchError('')
+    try {
+      const { error } = await supabase.from('stamp_records').delete().eq('id', existingStampId)
+      if (error) throw error
+      setAlreadyStamped(false)
+      setExistingStampId(null)
+      setExistingStampDate(null)
+      setStampSuccess(false)
+      setCancelSuccess(true)
+    } catch (e: any) {
+      setSearchError('취소 실패: ' + (e.message ?? ''))
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -975,7 +1010,7 @@ export default function AdminPage() {
                   <input
                     type="tel" inputMode="numeric"
                     value={searchPhone}
-                    onChange={e => { setSearchPhone(formatPhone(e.target.value)); setSearchError(''); setFoundProfile(null); setStampSuccess(false); setAlreadyStamped(false) }}
+                    onChange={e => { setSearchPhone(formatPhone(e.target.value)); setSearchError(''); setFoundProfile(null); resetStampStatus() }}
                     onKeyDown={e => e.key === 'Enter' && handleSearch()}
                     placeholder="010-1234-5678"
                     className="flex-1 px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-800 tracking-wider"
@@ -1001,23 +1036,44 @@ export default function AdminPage() {
                   <div className="px-5 py-4 space-y-2.5">
                     <div className="flex justify-between"><span className="text-xs text-gray-500">이름</span><span className="text-sm font-semibold text-gray-900">{foundProfile.name}</span></div>
                     <div className="flex justify-between"><span className="text-xs text-gray-500">전화번호</span><span className="text-sm text-gray-700">{formatPhone(foundProfile.phone)}</span></div>
+                    <div className="flex justify-between"><span className="text-xs text-gray-500">생년월일</span><span className="text-sm text-gray-700">{formatBirthdate(foundProfile.birthdate)}</span></div>
                     {selectedOrgId && (
                       <div className="flex justify-between"><span className="text-xs text-gray-500">발급 기관</span><span className="text-sm font-medium text-gray-800">{ORGANIZATIONS.find(o => o.id === selectedOrgId)?.name}</span></div>
                     )}
                   </div>
-                  <div className="px-5 pb-5">
+                  <div className="px-5 pb-5 space-y-2">
                     {!selectedOrgId ? (
                       <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-500 text-center">위에서 기관을 먼저 선택해주세요.</div>
+                    ) : cancelSuccess ? (
+                      <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                        <CheckCircle size={18} className="text-green-500 flex-shrink-0" />
+                        <p className="text-sm font-semibold text-green-700">스탬프가 취소되었습니다.</p>
+                      </div>
                     ) : stampSuccess ? (
                       <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
                         <CheckCircle size={18} className="text-green-500 flex-shrink-0" />
                         <p className="text-sm font-semibold text-green-700">스탬프가 발급되었습니다!</p>
                       </div>
                     ) : alreadyStamped ? (
-                      <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-                        <CheckCircle size={18} className="text-amber-500 flex-shrink-0" />
-                        <p className="text-sm font-semibold text-amber-700">이미 스탬프가 발급된 참여자입니다.</p>
-                      </div>
+                      <>
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle size={18} className="text-amber-500 flex-shrink-0" />
+                            <p className="text-sm font-semibold text-amber-700">이미 스탬프가 발급된 참여자입니다.</p>
+                          </div>
+                          {existingStampDate && (
+                            <p className="text-xs text-amber-600 mt-1 ml-7">발급일: {formatDate(existingStampDate)}</p>
+                          )}
+                        </div>
+                        <button
+                          onClick={handleCancelStamp}
+                          disabled={cancelling}
+                          className="w-full py-3.5 bg-red-50 text-red-600 border border-red-200 font-bold text-sm rounded-2xl hover:bg-red-100 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          <Trash2 size={16} />
+                          {cancelling ? '취소 중...' : '스탬프 취소'}
+                        </button>
+                      </>
                     ) : (
                       <button onClick={handleStamp} disabled={stamping} className="w-full py-4 bg-blue-600 text-white font-bold text-base rounded-2xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
                         <Stamp size={18} />
