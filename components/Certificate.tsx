@@ -40,12 +40,10 @@ const Certificate = forwardRef<HTMLDivElement, Props>(function Certificate(
       ref={ref}
       style={{
         width: 794,
-        minHeight: 1123,
         background: '#ffffff',
         padding: '56px 64px',
         fontFamily: '"Noto Sans KR", "Malgun Gothic", -apple-system, BlinkMacSystemFont, sans-serif',
         color: '#111827',
-        position: 'relative',
         boxSizing: 'border-box',
       }}
     >
@@ -113,20 +111,20 @@ const Certificate = forwardRef<HTMLDivElement, Props>(function Certificate(
         </p>
       </div>
 
-      {/* 스탬프 목록 */}
-      <div style={{ marginBottom: 36 }}>
-        <p style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 12, textAlign: 'center', letterSpacing: 2 }}>
+      {/* 스탬프 목록 — 3열 그리드 */}
+      <div style={{ marginBottom: 32 }}>
+        <p style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 10, textAlign: 'center', letterSpacing: 2 }}>
           체 험 기 관 목 록
         </p>
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            columnGap: 24,
-            rowGap: 8,
+            gridTemplateColumns: '1fr 1fr 1fr',
+            columnGap: 16,
+            rowGap: 4,
             border: '1px solid #e2e8f0',
             borderRadius: 12,
-            padding: '16px 20px',
+            padding: '12px 14px',
             background: '#ffffff',
           }}
         >
@@ -137,18 +135,26 @@ const Certificate = forwardRef<HTMLDivElement, Props>(function Certificate(
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                fontSize: 13,
-                padding: '6px 0',
-                borderBottom: idx < sortedStamps.length - 2 ? '1px dashed #f1f5f9' : 'none',
+                fontSize: 11,
+                padding: '4px 0',
+                gap: 6,
               }}
             >
-              <span style={{ color: '#0f172a' }}>
-                <span style={{ color: '#94a3b8', marginRight: 8, fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ color: '#0f172a', display: 'flex', minWidth: 0, flex: 1 }}>
+                <span style={{ color: '#94a3b8', marginRight: 4, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
                   {String(idx + 1).padStart(2, '0')}.
                 </span>
-                {s.center_name}
+                <span
+                  style={{
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {s.center_name}
+                </span>
               </span>
-              <span style={{ color: '#94a3b8', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ color: '#94a3b8', fontSize: 10, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
                 {formatStampDate(s.stamped_at)}
               </span>
             </div>
@@ -156,8 +162,8 @@ const Certificate = forwardRef<HTMLDivElement, Props>(function Certificate(
         </div>
       </div>
 
-      {/* 하단 발급 정보 */}
-      <div style={{ position: 'absolute', left: 64, right: 64, bottom: 64 }}>
+      {/* 하단 발급 정보 — 기관 목록 바로 아래에 일반 블록 흐름으로 배치 */}
+      <div style={{ marginTop: 30 }}>
         <p style={{ textAlign: 'center', fontSize: 16, color: '#475569', marginBottom: 18 }}>
           발급일: {formatKDate(issueDate)}
         </p>
