@@ -75,3 +75,66 @@ from participants p
 left join stamps s on s.participant_id = p.id
 group by p.id
 order by stamp_count desc;
+
+-- ============================================
+-- 기관 평가 (별점 + 한줄평) 테이블
+-- ============================================
+create table if not exists reviews (
+  id                uuid primary key default gen_random_uuid(),
+  participant_id    uuid not null,
+  participant_name  text not null,
+  center_id         integer not null,
+  center_name       text not null,
+  rating            integer not null check (rating >= 1 and rating <= 5),
+  comment           text,
+  created_at        timestamptz default now(),
+  -- 참가자 1명당 기관 1개 평가 (수정은 upsert로 created_at 갱신)
+  unique(participant_id, center_id)
+);
+
+create index if not exists reviews_center_id_idx on reviews(center_id);
+create index if not exists reviews_participant_id_idx on reviews(participant_id);
+
+alter table reviews enable row level security;
+
+create policy "reviews_insert" on reviews for insert with check (true);
+create policy "reviews_select" on reviews for select using (true);
+create policy "reviews_update" on reviews for update using (true) with check (true);
+create policy "reviews_delete" on reviews for delete using (true);
+
+-- 기관별 평균 별점 / 평가 수 뷰
+create or replace view center_review_summary as
+select
+  center_id,
+  center_name,
+  count(*)                              as review_count,
+  round(avg(rating)::numeric, 1)        as avg_rating
+from reviews
+group by center_id, center_name
+order by avg_rating desc nulls last;
+
+-- ============================================
+-- 프로그램 신청 (참가자가 외부 신청 후 "완료" 누른 기록)
+-- ============================================
+create table if not exists applications (
+  id                  uuid primary key default gen_random_uuid(),
+  participant_id      uuid not null,
+  participant_name    text not null,
+  participant_phone   text not null,
+  center_id           integer not null,
+  center_name         text not null,
+  status              text not null default 'pending' check (status in ('pending', 'approved')),
+  applied_at          timestamptz default now(),
+  unique(participant_id, center_id)
+);
+
+create index if not exists applications_center_id_idx on applications(center_id);
+create index if not exists applications_status_idx on applications(status);
+create index if not exists applications_participant_id_idx on applications(participant_id);
+
+alter table applications enable row level security;
+
+create policy "applications_insert" on applications for insert with check (true);
+create policy "applications_select" on applications for select using (true);
+create policy "applications_update" on applications for update using (true) with check (true);
+create policy "applications_delete" on applications for delete using (true);

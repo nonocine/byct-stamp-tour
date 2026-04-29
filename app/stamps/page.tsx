@@ -1,12 +1,16 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Award, ChevronRight, LogIn, RefreshCw, Info } from 'lucide-react'
+import { Award, ChevronRight, LogIn, RefreshCw, Info, Star, FileDown } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS, getOrgById } from '@/lib/data'
 import StampGrid from '@/components/StampGrid'
 import OrgIcon from '@/components/OrgIcon'
+import ReviewModal from '@/components/ReviewModal'
+import Certificate from '@/components/Certificate'
 import { useAuth } from '@/components/AuthProvider'
+import { downloadCertificatePdf } from '@/lib/generateCertificate'
+import type { Organization } from '@/lib/types'
 
 interface StampRecord {
   id: string
@@ -16,29 +20,78 @@ interface StampRecord {
   stamped_at: string
 }
 
+interface ReviewRecord {
+  id: string
+  center_id: number
+  rating: number
+  comment: string | null
+}
+
 export default function StampsPage() {
   const { profile, loading } = useAuth()
   const [records, setRecords] = useState<StampRecord[]>([])
+  const [reviews, setReviews] = useState<ReviewRecord[]>([])
   const [fetching, setFetching] = useState(false)
+  const [reviewOrg, setReviewOrg] = useState<Organization | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const certificateRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!profile) return
-    fetchStamps()
+    fetchAll()
   }, [profile]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function fetchStamps() {
+  async function fetchAll() {
     if (!profile) return
     setFetching(true)
-    const { data, error } = await supabase
-      .from('stamp_records')
-      .select('id, center_id, center_name, approved_by, stamped_at')
-      .eq('participant_id', profile.id)
-      .order('stamped_at', { ascending: false })
-    console.log('participant.id:', profile.id)
-    console.log('stamp data:', data)
-    console.log('stamp error:', error)
-    setRecords(data ?? [])
+    const [stampsRes, reviewsRes] = await Promise.all([
+      supabase
+        .from('stamp_records')
+        .select('id, center_id, center_name, approved_by, stamped_at')
+        .eq('participant_id', profile.id)
+        .order('stamped_at', { ascending: false }),
+      supabase
+        .from('reviews')
+        .select('id, center_id, rating, comment')
+        .eq('participant_id', profile.id),
+    ])
+    setRecords(stampsRes.data ?? [])
+    setReviews(reviewsRes.data ?? [])
     setFetching(false)
+  }
+
+  function handleSelectOrg(org: Organization, collected: boolean) {
+    if (!collected) return
+    setReviewOrg(org)
+  }
+
+  async function handleDownloadCertificate() {
+    if (!profile || !certificateRef.current) return
+    setGenerating(true)
+    try {
+      // 이미지가 캔버스에 그려지기 전 로드 완료를 보장
+      const imgs = certificateRef.current.querySelectorAll('img')
+      await Promise.all(
+        Array.from(imgs).map(img =>
+          img.complete && img.naturalWidth > 0
+            ? Promise.resolve()
+            : new Promise<void>(resolve => {
+                img.addEventListener('load', () => resolve(), { once: true })
+                img.addEventListener('error', () => resolve(), { once: true })
+              }),
+        ),
+      )
+      await downloadCertificatePdf(certificateRef.current, profile.name)
+    } catch (e: any) {
+      const msg = (e?.message ?? '').toLowerCase()
+      alert(
+        msg.includes('failed to fetch') || msg.includes('network')
+          ? '네트워크 오류가 발생했습니다.'
+          : '인증서 생성에 실패했습니다. 다시 시도해주세요.',
+      )
+    } finally {
+      setGenerating(false)
+    }
   }
 
   if (loading) return null
@@ -63,6 +116,8 @@ export default function StampsPage() {
   }
 
   const stampedOrgIds = new Set(records.map(r => r.center_id))
+  const reviewedOrgIds = new Set(reviews.map(r => r.center_id))
+  const reviewByOrg = new Map(reviews.map(r => [r.center_id, r]))
   const count = stampedOrgIds.size
   const progress = Math.round((count / 17) * 100)
   const isComplete = count >= 17
@@ -82,7 +137,7 @@ export default function StampsPage() {
           <p className="text-sm text-gray-500 mt-0.5">{profile.name} · {displayPhone}</p>
         </div>
         <button
-          onClick={fetchStamps}
+          onClick={fetchAll}
           disabled={fetching}
           className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
         >
@@ -104,6 +159,7 @@ export default function StampsPage() {
         <Info size={14} className="text-blue-500 flex-shrink-0 mt-0.5" />
         <p className="text-xs text-blue-700 leading-relaxed">
           스탬프는 기관 방문 후 담당자가 인증해 드립니다.
+          스탬프가 찍힌 기관을 누르면 별점·한줄평을 남길 수 있어요.
         </p>
       </div>
 
@@ -143,15 +199,47 @@ export default function StampsPage() {
         </div>
       </div>
 
+      {/* 인증서 발급 */}
+      {count >= 3 && (
+        <button
+          onClick={handleDownloadCertificate}
+          disabled={generating}
+          className={`w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-2xl font-bold text-sm shadow-sm border transition-all active:scale-[0.98] disabled:opacity-60 ${
+            isComplete
+              ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-white border-orange-300 hover:from-amber-500 hover:to-orange-600'
+              : 'bg-blue-600 text-white border-blue-500 hover:bg-blue-700'
+          }`}
+        >
+          {generating ? (
+            <>
+              <RefreshCw size={16} className="animate-spin" /> 인증서 생성 중...
+            </>
+          ) : (
+            <>
+              <FileDown size={16} />
+              {isComplete ? '완주 수료증 발급' : '수료증 발급'}
+            </>
+          )}
+        </button>
+      )}
+
       {/* 스탬프 그리드 */}
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-        <h2 className="text-sm font-bold text-gray-700 mb-4">스탬프 현황</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-bold text-gray-700">스탬프 현황</h2>
+          <p className="text-xs text-gray-400">탭하여 평가</p>
+        </div>
         {fetching && records.length === 0 ? (
           <div className="py-6 flex justify-center">
             <RefreshCw size={18} className="animate-spin text-gray-300" />
           </div>
         ) : (
-          <StampGrid organizations={ORGANIZATIONS} stampedOrgIds={stampedOrgIds} />
+          <StampGrid
+            organizations={ORGANIZATIONS}
+            stampedOrgIds={stampedOrgIds}
+            reviewedOrgIds={reviewedOrgIds}
+            onSelect={handleSelectOrg}
+          />
         )}
       </div>
 
@@ -165,27 +253,64 @@ export default function StampsPage() {
             {records.map(record => {
               const org = getOrgById(record.center_id)
               if (!org) return null
+              const review = reviewByOrg.get(record.center_id)
               return (
-                <div key={record.id} className="px-5 py-3.5 flex items-center gap-3">
+                <button
+                  key={record.id}
+                  type="button"
+                  onClick={() => setReviewOrg(org)}
+                  className="w-full text-left px-5 py-3.5 flex items-start gap-3 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+                >
                   <OrgIcon org={org} size={36} rounded="rounded-xl" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900 truncate">{org.name}</p>
                     <p className="text-xs text-gray-400 mt-0.5">담당: {record.approved_by}</p>
+                    {review ? (
+                      <div className="mt-1.5 space-y-1">
+                        <div className="flex items-center gap-0.5">
+                          {[1, 2, 3, 4, 5].map(n => (
+                            <Star
+                              key={n}
+                              size={11}
+                              strokeWidth={1.5}
+                              className={n <= review.rating ? 'text-amber-400 fill-amber-400' : 'text-gray-200'}
+                            />
+                          ))}
+                          <span className="text-xs font-bold text-amber-600 ml-1">{review.rating}.0</span>
+                        </div>
+                        {review.comment && (
+                          <p className="text-xs text-gray-600 leading-snug line-clamp-2">"{review.comment}"</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="mt-1.5 text-xs font-semibold text-blue-600">⭐ 평가 남기기</p>
+                    )}
                   </div>
                   <div className="flex-shrink-0 text-right">
                     <div
-                      className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold mb-1"
+                      className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold mb-1 ml-auto"
                       style={{ backgroundColor: org.color }}
                     >
                       ✓
                     </div>
                     <p className="text-xs text-gray-400">{formatDate(record.stamped_at)}</p>
                   </div>
-                </div>
+                </button>
               )
             })}
           </div>
         </div>
+      )}
+
+      {/* 평가 모달 */}
+      {reviewOrg && (
+        <ReviewModal
+          open={!!reviewOrg}
+          org={reviewOrg}
+          participant={{ id: profile.id, name: profile.name }}
+          onClose={() => setReviewOrg(null)}
+          onSaved={fetchAll}
+        />
       )}
 
       {/* 남은 기관 안내 */}
@@ -201,6 +326,30 @@ export default function StampsPage() {
           </Link>
         </div>
       )}
+
+      {/* 인증서 (오프스크린 — html2canvas 캡처용) */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: '-10000px',
+          pointerEvents: 'none',
+          opacity: 0,
+        }}
+      >
+        <Certificate
+          ref={certificateRef}
+          participantName={profile.name}
+          stamps={records.map(r => ({
+            center_id: r.center_id,
+            center_name: r.center_name,
+            stamped_at: r.stamped_at,
+          }))}
+          isComplete={isComplete}
+          issueDate={new Date()}
+        />
+      </div>
     </div>
   )
 }

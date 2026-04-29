@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import {
   BarChart3, Users, Stamp, TrendingUp, RefreshCw, Search, CheckCircle, XCircle,
   LogOut, Shield, Plus, Trash2, Phone, UserCheck, ChevronLeft, ChevronRight,
-  Edit2, X, Save, ChevronDown, ChevronUp, Download, Link2, ExternalLink,
+  Edit2, X, Save, ChevronDown, ChevronUp, Download, Link2, ExternalLink, Star,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
@@ -12,7 +12,7 @@ import { useAdmin } from '@/components/AdminProvider'
 import { ORGANIZATIONS } from '@/lib/data'
 import OrgIcon from '@/components/OrgIcon'
 
-type Tab = 'dashboard' | 'stamp' | 'participants' | 'admins' | 'links'
+type Tab = 'dashboard' | 'stamp' | 'participants' | 'admins' | 'links' | 'reviews' | 'applications'
 
 const PAGE_SIZE = 20
 
@@ -64,6 +64,35 @@ interface AdminRow {
   role: 'super' | 'center'
   center_id: number | null
   center_name: string | null
+}
+
+interface ReviewRow {
+  id: string
+  participant_id: string
+  participant_name: string
+  center_id: number
+  center_name: string
+  rating: number
+  comment: string | null
+  created_at: string
+}
+
+interface ReviewSummary {
+  center_id: number
+  center_name: string
+  count: number
+  avg: number
+}
+
+interface ApplicationRow {
+  id: string
+  participant_id: string
+  participant_name: string
+  participant_phone: string
+  center_id: number
+  center_name: string
+  status: 'pending' | 'approved'
+  applied_at: string
 }
 
 // ── 유틸 ─────────────────────────────────────────────────────────────────────
@@ -160,6 +189,19 @@ export default function AdminPage() {
   const [savingLinkId, setSavingLinkId] = useState<number | null>(null)
   const [savedLinkId, setSavedLinkId] = useState<number | null>(null)
 
+  // ── 평가 (별점/한줄평) ────────────────────────────────────────────────────
+  const [reviews, setReviews] = useState<ReviewRow[]>([])
+  const [reviewsLoading, setReviewsLoading] = useState(false)
+  const [reviewCenterId, setReviewCenterId] = useState<number | null>(null)
+  const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null)
+
+  // ── 프로그램 신청 대기 ───────────────────────────────────────────────────
+  const [applications, setApplications] = useState<ApplicationRow[]>([])
+  const [applicationsLoading, setApplicationsLoading] = useState(false)
+  const [applicationCenterId, setApplicationCenterId] = useState<number | null>(null)
+  const [pendingCount, setPendingCount] = useState(0)
+  const [processingAppId, setProcessingAppId] = useState<string | null>(null)
+
   useEffect(() => {
     if (!loading && !admin) router.replace('/admin/login')
   }, [admin, loading, router])
@@ -177,29 +219,72 @@ export default function AdminPage() {
     if (!admin) return
     setStatsLoading(true)
     try {
-      const [profilesRes, stampsRes] = await Promise.all([
-        supabase.from('profiles').select('id', { count: 'exact', head: true }),
-        supabase.from('stamp_records').select('center_id, participant_id'),
-      ])
-      const totalProfiles = profilesRes.count ?? 0
-      const allStamps: { center_id: number; participant_id: string }[] = stampsRes.data ?? []
-      const totalStamps = allStamps.length
+      // ── 슈퍼관리자: 전체 데이터 ──────────────────────────────────────
+      if (admin.role === 'super') {
+        const [profilesRes, stampsRes] = await Promise.all([
+          supabase.from('profiles').select('id', { count: 'exact', head: true }),
+          supabase.from('stamp_records').select('center_id, participant_id'),
+        ])
+        const totalProfiles = profilesRes.count ?? 0
+        const allStamps: { center_id: number; participant_id: string }[] = stampsRes.data ?? []
+        const totalStamps = allStamps.length
+
+        const participantOrgs: Record<string, Set<number>> = {}
+        allStamps.forEach(r => {
+          if (!participantOrgs[r.participant_id]) participantOrgs[r.participant_id] = new Set()
+          participantOrgs[r.participant_id].add(r.center_id)
+        })
+        const completions = Object.values(participantOrgs).filter(s => s.size >= 17).length
+
+        const countMap: Record<number, number> = {}
+        allStamps.forEach(s => { countMap[s.center_id] = (countMap[s.center_id] ?? 0) + 1 })
+
+        const centerBreakdown = ORGANIZATIONS.map(org => ({
+          center_id: org.id,
+          center_name: org.name,
+          count: countMap[org.id] ?? 0,
+        })).sort((a, b) => b.count - a.count)
+
+        setStats({ totalProfiles, totalStamps, completions, centerBreakdown })
+        return
+      }
+
+      // ── 기관관리자: 본인 기관 스탬프를 받은 참가자만 ───────────────
+      if (!admin.center_id) {
+        setStats({ totalProfiles: 0, totalStamps: 0, completions: 0, centerBreakdown: [] })
+        return
+      }
+
+      const { data: ourStamps } = await supabase
+        .from('stamp_records')
+        .select('participant_id')
+        .eq('center_id', admin.center_id)
+      const myPids = Array.from(
+        new Set((ourStamps ?? []).map((r: any) => r.participant_id).filter(Boolean))
+      ) as string[]
+
+      const totalProfiles = myPids.length
+      const totalStamps = (ourStamps ?? []).length
+
+      // 본인 기관 참가자들의 모든 기관 스탬프 (완주 계산용)
+      const { data: allTheirStamps } = myPids.length > 0
+        ? await supabase
+            .from('stamp_records')
+            .select('center_id, participant_id')
+            .in('participant_id', myPids)
+        : { data: [] as any[] }
 
       const participantOrgs: Record<string, Set<number>> = {}
-      allStamps.forEach(r => {
+      ;(allTheirStamps ?? []).forEach((r: any) => {
         if (!participantOrgs[r.participant_id]) participantOrgs[r.participant_id] = new Set()
         participantOrgs[r.participant_id].add(r.center_id)
       })
       const completions = Object.values(participantOrgs).filter(s => s.size >= 17).length
 
-      const countMap: Record<number, number> = {}
-      allStamps.forEach(s => { countMap[s.center_id] = (countMap[s.center_id] ?? 0) + 1 })
-
-      const centerBreakdown = ORGANIZATIONS.map(org => ({
-        center_id: org.id,
-        center_name: org.name,
-        count: countMap[org.id] ?? 0,
-      })).sort((a, b) => b.count - a.count)
+      const myOrg = ORGANIZATIONS.find(o => o.id === admin.center_id)
+      const centerBreakdown = myOrg
+        ? [{ center_id: myOrg.id, center_name: myOrg.name, count: totalStamps }]
+        : []
 
       setStats({ totalProfiles, totalStamps, completions, centerBreakdown })
     } finally {
@@ -208,11 +293,28 @@ export default function AdminPage() {
   }, [admin])
 
   const loadRanking = useCallback(async () => {
+    if (!admin) return
     setRankLoading(true)
     try {
-      const { data } = await supabase
+      // 기관관리자: 본인 기관 참가자만 랭킹에 포함
+      let scopedPids: string[] | null = null
+      if (admin.role === 'center') {
+        if (!admin.center_id) { setRanking([]); return }
+        const { data: pidRows } = await supabase
+          .from('stamp_records')
+          .select('participant_id')
+          .eq('center_id', admin.center_id)
+        scopedPids = Array.from(
+          new Set((pidRows ?? []).map((r: any) => r.participant_id).filter(Boolean))
+        ) as string[]
+        if (scopedPids.length === 0) { setRanking([]); return }
+      }
+
+      let q = supabase
         .from('stamp_records')
         .select('participant_id, participant_name, participant_phone, center_id')
+      if (scopedPids) q = q.in('participant_id', scopedPids)
+      const { data } = await q
       if (!data) return
 
       const map: Record<string, { name: string; phone: string; centers: Set<number> }> = {}
@@ -242,18 +344,35 @@ export default function AdminPage() {
     } finally {
       setRankLoading(false)
     }
-  }, [])
+  }, [admin])
 
   const loadDashParticipants = useCallback(async (p: number) => {
     if (!admin) return
     setDashLoading(true)
     try {
+      // 기관관리자: 본인 기관 스탬프를 받은 참가자만
+      let scopedIds: string[] | null = null
+      if (admin.role === 'center') {
+        if (!admin.center_id) { setDashParticipants([]); setDashTotal(0); return }
+        const { data: pidRows } = await supabase
+          .from('stamp_records')
+          .select('participant_id')
+          .eq('center_id', admin.center_id)
+        scopedIds = Array.from(
+          new Set((pidRows ?? []).map((r: any) => r.participant_id).filter(Boolean))
+        ) as string[]
+        if (scopedIds.length === 0) { setDashParticipants([]); setDashTotal(0); return }
+      }
+
       const from = p * PAGE_SIZE
-      const { data: profiles, count } = await supabase
+      let pq = supabase
         .from('profiles')
         .select('id, name, phone, created_at', { count: 'exact' })
         .order('created_at', { ascending: false })
         .range(from, from + PAGE_SIZE - 1)
+      if (scopedIds) pq = pq.in('id', scopedIds)
+
+      const { data: profiles, count } = await pq
 
       if (!profiles) return
       setDashTotal(count ?? 0)
@@ -276,14 +395,23 @@ export default function AdminPage() {
   // ── 참가자 관리 데이터 ────────────────────────────────────────────────────
 
   const loadParticipants = useCallback(async (p: number, search: string, centerId: number | null) => {
+    if (!admin) return
     setPLoading(true)
     try {
+      // 기관관리자는 본인 기관으로 강제 (UI 우회 방어)
+      const effectiveCenterId = admin.role === 'center' ? (admin.center_id ?? null) : centerId
+      if (admin.role === 'center' && !admin.center_id) {
+        setPList([])
+        setPTotal(0)
+        return
+      }
+
       let filterIds: string[] | null = null
-      if (centerId !== null) {
+      if (effectiveCenterId !== null) {
         const { data: pidRows } = await supabase
           .from('stamp_records')
           .select('participant_id')
-          .eq('center_id', centerId)
+          .eq('center_id', effectiveCenterId)
         filterIds = Array.from(
           new Set((pidRows ?? []).map((r: any) => r.participant_id).filter(Boolean))
         )
@@ -333,7 +461,7 @@ export default function AdminPage() {
     } finally {
       setPLoading(false)
     }
-  }, [])
+  }, [admin])
 
 
   async function loadParticipantStamps(participantId: string) {
@@ -784,6 +912,156 @@ export default function AdminPage() {
     }
   }
 
+  // ── 평가 ──────────────────────────────────────────────────────────────────
+
+  const loadReviews = useCallback(async (centerId: number | null) => {
+    setReviewsLoading(true)
+    try {
+      let query = supabase
+        .from('reviews')
+        .select('id, participant_id, participant_name, center_id, center_name, rating, comment, created_at')
+        .order('created_at', { ascending: false })
+      if (centerId !== null) query = query.eq('center_id', centerId)
+      const { data } = await query
+      setReviews((data ?? []) as ReviewRow[])
+    } finally {
+      setReviewsLoading(false)
+    }
+  }, [])
+
+  async function handleDeleteReview(id: string) {
+    if (admin?.role !== 'super') return
+    if (!confirm('이 평가를 삭제할까요?')) return
+    setDeletingReviewId(id)
+    try {
+      const { error } = await supabase.from('reviews').delete().eq('id', id)
+      if (error) throw error
+      setReviews(prev => prev.filter(r => r.id !== id))
+    } catch (e: any) {
+      const msg = (e?.message ?? '').toLowerCase()
+      alert(
+        msg.includes('failed to fetch') || msg.includes('network')
+          ? '네트워크 오류가 발생했습니다.'
+          : '삭제에 실패했습니다. 다시 시도해주세요.'
+      )
+    } finally {
+      setDeletingReviewId(null)
+    }
+  }
+
+  // ── 신청 대기 ────────────────────────────────────────────────────────────
+
+  const loadApplications = useCallback(async (centerId: number | null) => {
+    if (!admin) return
+    setApplicationsLoading(true)
+    try {
+      // 기관관리자는 본인 기관으로 강제
+      const effectiveCenterId = admin.role === 'center' ? (admin.center_id ?? null) : centerId
+      if (admin.role === 'center' && !admin.center_id) {
+        setApplications([])
+        return
+      }
+
+      let q = supabase
+        .from('applications')
+        .select('id, participant_id, participant_name, participant_phone, center_id, center_name, status, applied_at')
+        .eq('status', 'pending')
+        .order('applied_at', { ascending: true })
+      if (effectiveCenterId !== null) q = q.eq('center_id', effectiveCenterId)
+
+      const { data } = await q
+      setApplications((data ?? []) as ApplicationRow[])
+    } finally {
+      setApplicationsLoading(false)
+    }
+  }, [admin])
+
+  const loadPendingCount = useCallback(async () => {
+    if (!admin) return
+    try {
+      let q = supabase
+        .from('applications')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending')
+      if (admin.role === 'center') {
+        if (!admin.center_id) { setPendingCount(0); return }
+        q = q.eq('center_id', admin.center_id)
+      }
+      const { count } = await q
+      setPendingCount(count ?? 0)
+    } catch {
+      // 카운트 실패는 조용히 무시 (배지가 0으로 표시됨)
+    }
+  }, [admin])
+
+  async function handleApproveApplication(app: ApplicationRow) {
+    if (!admin) return
+    if (admin.role === 'center' && admin.center_id !== app.center_id) return
+    setProcessingAppId(app.id)
+    try {
+      // 1. 이미 스탬프가 있는지 확인
+      const { data: existing } = await supabase
+        .from('stamp_records')
+        .select('id')
+        .eq('participant_id', app.participant_id)
+        .eq('center_id', app.center_id)
+        .maybeSingle()
+
+      // 2. 없으면 스탬프 발급
+      if (!existing) {
+        const { error: stampErr } = await supabase.from('stamp_records').insert({
+          participant_id: app.participant_id,
+          participant_name: app.participant_name,
+          participant_phone: app.participant_phone,
+          center_id: app.center_id,
+          center_name: app.center_name,
+          approved_by: admin.name,
+        })
+        if (stampErr) throw stampErr
+      }
+
+      // 3. 신청 상태를 approved로 변경
+      const { error: updErr } = await supabase
+        .from('applications')
+        .update({ status: 'approved' })
+        .eq('id', app.id)
+      if (updErr) throw updErr
+
+      setApplications(prev => prev.filter(a => a.id !== app.id))
+      setPendingCount(c => Math.max(0, c - 1))
+    } catch (e: any) {
+      const msg = (e?.message ?? '').toLowerCase()
+      alert(
+        msg.includes('failed to fetch') || msg.includes('network')
+          ? '네트워크 오류가 발생했습니다.'
+          : '스탬프 발급에 실패했습니다. 다시 시도해주세요.',
+      )
+    } finally {
+      setProcessingAppId(null)
+    }
+  }
+
+  async function handleRejectApplication(app: ApplicationRow) {
+    if (admin?.role !== 'super' && (admin?.role !== 'center' || admin.center_id !== app.center_id)) return
+    if (!confirm(`"${app.participant_name}" 님의 신청을 삭제할까요?`)) return
+    setProcessingAppId(app.id)
+    try {
+      const { error } = await supabase.from('applications').delete().eq('id', app.id)
+      if (error) throw error
+      setApplications(prev => prev.filter(a => a.id !== app.id))
+      setPendingCount(c => Math.max(0, c - 1))
+    } catch (e: any) {
+      const msg = (e?.message ?? '').toLowerCase()
+      alert(
+        msg.includes('failed to fetch') || msg.includes('network')
+          ? '네트워크 오류가 발생했습니다.'
+          : '삭제에 실패했습니다. 다시 시도해주세요.',
+      )
+    } finally {
+      setProcessingAppId(null)
+    }
+  }
+
   // ── 탭 전환 시 데이터 로드 (admin 인증 완료 후 실행) ──────────────────────
 
   useEffect(() => {
@@ -792,7 +1070,34 @@ export default function AdminPage() {
     if (tab === 'participants') { loadParticipants(0, '', pCenterId); setPPage(0); setPSearch('') }
     if (tab === 'admins' && admin.role === 'super') loadAdmins()
     if (tab === 'links') loadCenterLinks()
+    if (tab === 'reviews') {
+      const initial = admin.role === 'center' ? (admin.center_id ?? null) : reviewCenterId
+      setReviewCenterId(initial)
+      loadReviews(initial)
+    }
+    if (tab === 'applications') {
+      const initial = admin.role === 'center' ? (admin.center_id ?? null) : applicationCenterId
+      setApplicationCenterId(initial)
+      loadApplications(initial)
+      loadPendingCount()
+    }
   }, [tab, admin, loading]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 인증 직후 대기 인원 카운트 로드 (탭 배지용)
+  useEffect(() => {
+    if (loading || !admin) return
+    loadPendingCount()
+  }, [admin, loading, loadPendingCount])
+
+  useEffect(() => {
+    if (loading || !admin || tab !== 'reviews') return
+    loadReviews(reviewCenterId)
+  }, [reviewCenterId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (loading || !admin || tab !== 'applications') return
+    loadApplications(applicationCenterId)
+  }, [applicationCenterId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (loading || !admin || tab !== 'dashboard') return
@@ -827,8 +1132,10 @@ export default function AdminPage() {
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'dashboard', label: '대시보드' },
+    { key: 'applications', label: pendingCount > 0 ? `신청 대기 (${pendingCount})` : '신청 대기' },
     { key: 'stamp', label: '스탬프 찍기' },
     { key: 'participants', label: '참가자 관리' },
+    { key: 'reviews', label: '평가 모아보기' },
     { key: 'links', label: '기관 링크' },
     ...(admin.role === 'super' ? [{ key: 'admins' as Tab, label: '관리자 관리' }] : []),
   ]
@@ -1438,6 +1745,324 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          신청 대기 탭
+      ══════════════════════════════════════════════════════════════════ */}
+      {tab === 'applications' && (
+        <div className="px-4 space-y-4">
+          {admin.role === 'center' && (
+            <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3">
+              <p className="text-xs text-blue-700">
+                <span className="font-semibold">{admin.center_name ?? '본인 기관'}</span>에 신청한 참가자만 표시됩니다.
+              </p>
+              <p className="text-xs text-blue-600 mt-0.5">"스탬프 찍기"를 누르면 즉시 발급되고 승인완료로 변경됩니다.</p>
+            </div>
+          )}
+
+          {admin.role === 'super' && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3">
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5 px-1">기관 필터</label>
+              <select
+                value={applicationCenterId ?? ''}
+                onChange={e => {
+                  const v = e.target.value
+                  setApplicationCenterId(v === '' ? null : Number(v))
+                }}
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-gray-800"
+              >
+                <option value="">전체 기관</option>
+                {ORGANIZATIONS.map(org => (
+                  <option key={org.id} value={org.id}>{org.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                ⏳ 신청 대기 목록
+                {!applicationsLoading && (
+                  <span className="text-xs text-gray-400 font-normal">{applications.length}명</span>
+                )}
+              </h2>
+              <button
+                onClick={() => { loadApplications(applicationCenterId); loadPendingCount() }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <RefreshCw size={13} className={applicationsLoading ? 'animate-spin' : ''} />
+              </button>
+            </div>
+
+            {applicationsLoading ? (
+              <div className="py-10 flex justify-center">
+                <RefreshCw size={18} className="animate-spin text-gray-300" />
+              </div>
+            ) : applications.length === 0 ? (
+              <div className="py-12 text-center">
+                <p className="text-3xl mb-2">📭</p>
+                <p className="text-sm text-gray-500 font-medium">대기 중인 신청이 없습니다</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-50">
+                {applications.map(app => {
+                  const org = ORGANIZATIONS.find(o => o.id === app.center_id)
+                  const processing = processingAppId === app.id
+                  return (
+                    <div key={app.id} className="px-4 py-3.5">
+                      <div className="flex items-start gap-2.5">
+                        {org && <OrgIcon org={org} size={32} rounded="rounded-lg" />}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-gray-500 font-medium truncate">{app.center_name}</p>
+                          <p className="text-sm font-bold text-gray-900 mt-0.5">{app.participant_name}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {formatPhone(app.participant_phone)}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            신청 {formatDate(app.applied_at)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <button
+                          onClick={() => handleRejectApplication(app)}
+                          disabled={processing}
+                          className="px-3 py-2.5 text-xs font-semibold bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50"
+                        >
+                          삭제
+                        </button>
+                        <button
+                          onClick={() => handleApproveApplication(app)}
+                          disabled={processing}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50"
+                        >
+                          {processing ? (
+                            <>
+                              <RefreshCw size={14} className="animate-spin" /> 발급 중...
+                            </>
+                          ) : (
+                            <>
+                              <Stamp size={14} /> 스탬프 찍기
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          평가 모아보기 탭
+      ══════════════════════════════════════════════════════════════════ */}
+      {tab === 'reviews' && (() => {
+        const visibleCenterId = admin.role === 'center' ? admin.center_id : reviewCenterId
+        const filtered = visibleCenterId !== null && visibleCenterId !== undefined
+          ? reviews.filter(r => r.center_id === visibleCenterId)
+          : reviews
+
+        const summaryMap: Record<number, { name: string; total: number; sum: number }> = {}
+        reviews.forEach(r => {
+          if (!summaryMap[r.center_id]) summaryMap[r.center_id] = { name: r.center_name, total: 0, sum: 0 }
+          summaryMap[r.center_id].total += 1
+          summaryMap[r.center_id].sum += r.rating
+        })
+        const summary: ReviewSummary[] = ORGANIZATIONS
+          .filter(o => admin.role === 'super' || admin.center_id === o.id)
+          .map(o => {
+            const s = summaryMap[o.id]
+            return {
+              center_id: o.id,
+              center_name: o.name,
+              count: s?.total ?? 0,
+              avg: s ? Math.round((s.sum / s.total) * 10) / 10 : 0,
+            }
+          })
+          .sort((a, b) => b.avg - a.avg || b.count - a.count)
+
+        const overallCount = filtered.length
+        const overallAvg = overallCount > 0
+          ? Math.round((filtered.reduce((acc, r) => acc + r.rating, 0) / overallCount) * 10) / 10
+          : 0
+
+        return (
+          <div className="px-4 space-y-4">
+            {admin.role === 'center' && (
+              <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3">
+                <p className="text-xs text-blue-700">
+                  <span className="font-semibold">{admin.center_name ?? '본인 기관'}</span>에 작성된 평가만 조회됩니다.
+                </p>
+              </div>
+            )}
+
+            {/* 기관 필터 (슈퍼관리자만) */}
+            {admin.role === 'super' && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3">
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5 px-1">기관 필터</label>
+                <select
+                  value={reviewCenterId ?? ''}
+                  onChange={e => {
+                    const v = e.target.value
+                    setReviewCenterId(v === '' ? null : Number(v))
+                  }}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-gray-800"
+                >
+                  <option value="">전체 기관</option>
+                  {ORGANIZATIONS.map(org => (
+                    <option key={org.id} value={org.id}>{org.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* 요약 카드 */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-amber-500 rounded-2xl p-4 text-white">
+                <Star size={20} className="mb-2 opacity-90 fill-white" />
+                <p className="text-3xl font-black">
+                  {overallAvg > 0 ? overallAvg.toFixed(1) : '-'}
+                </p>
+                <p className="text-sm text-amber-100 mt-0.5">평균 별점</p>
+              </div>
+              <div className="bg-rose-500 rounded-2xl p-4 text-white">
+                <Users size={20} className="mb-2 opacity-90" />
+                <p className="text-3xl font-black">{overallCount}</p>
+                <p className="text-sm text-rose-100 mt-0.5">평가 수</p>
+              </div>
+            </div>
+
+            {/* 기관별 평균 별점 */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                  <BarChart3 size={15} /> 기관별 평균 별점
+                </h2>
+                <button onClick={() => loadReviews(reviewCenterId)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                  <RefreshCw size={13} className={reviewsLoading ? 'animate-spin' : ''} />
+                </button>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {summary.map(({ center_id, center_name, count, avg }, idx) => {
+                  const org = ORGANIZATIONS.find(o => o.id === center_id)
+                  return (
+                    <button
+                      key={center_id}
+                      type="button"
+                      onClick={() => admin.role === 'super' && setReviewCenterId(center_id)}
+                      disabled={admin.role !== 'super'}
+                      className={`w-full px-5 py-3 flex items-center gap-3 text-left transition-colors ${
+                        admin.role === 'super' ? 'hover:bg-gray-50' : ''
+                      } ${reviewCenterId === center_id ? 'bg-amber-50' : ''}`}
+                    >
+                      <span className="text-xs text-gray-400 w-5 text-center font-medium">{idx + 1}</span>
+                      {org && <OrgIcon org={org} size={32} rounded="rounded-lg" />}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-800 truncate">{center_name}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <div className="flex items-center gap-0.5">
+                            {[1, 2, 3, 4, 5].map(n => (
+                              <Star
+                                key={n}
+                                size={11}
+                                strokeWidth={1.5}
+                                className={n <= Math.round(avg) ? 'text-amber-400 fill-amber-400' : 'text-gray-200'}
+                              />
+                            ))}
+                          </div>
+                          <span className="text-xs text-gray-400">{count}건</span>
+                        </div>
+                      </div>
+                      <p className="text-base font-black text-amber-500 flex-shrink-0">
+                        {avg > 0 ? avg.toFixed(1) : '-'}
+                      </p>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* 한줄평 목록 */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                  💬 한줄평 목록
+                  {!reviewsLoading && (
+                    <span className="text-xs text-gray-400 font-normal">{filtered.length}건</span>
+                  )}
+                </h2>
+                {admin.role === 'super' && reviewCenterId !== null && (
+                  <button
+                    onClick={() => setReviewCenterId(null)}
+                    className="text-xs text-blue-600 font-semibold hover:text-blue-700"
+                  >
+                    전체 보기
+                  </button>
+                )}
+              </div>
+
+              {reviewsLoading ? (
+                <div className="py-10 flex justify-center">
+                  <RefreshCw size={18} className="animate-spin text-gray-300" />
+                </div>
+              ) : filtered.length === 0 ? (
+                <div className="py-10 text-center text-sm text-gray-400">아직 작성된 평가가 없습니다</div>
+              ) : (
+                <div className="divide-y divide-gray-50">
+                  {filtered.map(r => {
+                    const org = ORGANIZATIONS.find(o => o.id === r.center_id)
+                    return (
+                      <div key={r.id} className="px-5 py-3.5">
+                        <div className="flex items-start gap-2.5">
+                          {org && <OrgIcon org={org} size={32} rounded="rounded-lg" />}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs font-semibold text-gray-700 truncate">{r.center_name}</p>
+                              <div className="flex items-center gap-0.5 flex-shrink-0">
+                                {[1, 2, 3, 4, 5].map(n => (
+                                  <Star
+                                    key={n}
+                                    size={11}
+                                    strokeWidth={1.5}
+                                    className={n <= r.rating ? 'text-amber-400 fill-amber-400' : 'text-gray-200'}
+                                  />
+                                ))}
+                                <span className="text-xs font-bold text-amber-600 ml-1">{r.rating}</span>
+                              </div>
+                            </div>
+                            {r.comment && (
+                              <p className="text-sm text-gray-800 mt-1.5 leading-relaxed">"{r.comment}"</p>
+                            )}
+                            <div className="flex items-center justify-between gap-2 mt-1.5">
+                              <p className="text-xs text-gray-400">
+                                {r.participant_name} · {formatDate(r.created_at)}
+                              </p>
+                              {admin.role === 'super' && (
+                                <button
+                                  onClick={() => handleDeleteReview(r.id)}
+                                  disabled={deletingReviewId === r.id}
+                                  className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
+                                  title="평가 삭제"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ══════════════════════════════════════════════════════════════════
           기관 링크 관리 탭

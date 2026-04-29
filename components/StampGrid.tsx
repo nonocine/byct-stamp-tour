@@ -1,19 +1,34 @@
 'use client'
+import { Star } from 'lucide-react'
 import type { Organization } from '@/lib/types'
 
 interface Props {
   organizations: Organization[]
   stampedOrgIds: Set<number>
+  reviewedOrgIds?: Set<number>
+  onSelect?: (org: Organization, collected: boolean) => void
 }
 
-export default function StampGrid({ organizations, stampedOrgIds }: Props) {
+export default function StampGrid({ organizations, stampedOrgIds, reviewedOrgIds, onSelect }: Props) {
   return (
     <div className="grid grid-cols-3 gap-3">
       {organizations.map(org => {
         const collected = stampedOrgIds.has(org.id)
+        const reviewed = reviewedOrgIds?.has(org.id) ?? false
+        const clickable = !!onSelect
+
+        const Wrapper: any = clickable ? 'button' : 'div'
+        const wrapperProps = clickable
+          ? {
+              type: 'button',
+              disabled: !collected,
+              onClick: () => onSelect?.(org, collected),
+              className: `flex flex-col items-center gap-1.5 ${collected ? 'cursor-pointer active:scale-95 transition-transform' : 'cursor-not-allowed opacity-100'}`,
+            }
+          : { className: 'flex flex-col items-center gap-1.5' }
 
         return (
-          <div key={org.id} className="flex flex-col items-center gap-1.5">
+          <Wrapper key={org.id} {...wrapperProps}>
             {/* 스탬프 원형 */}
             <div className="relative">
               <div
@@ -73,6 +88,11 @@ export default function StampGrid({ organizations, stampedOrgIds }: Props) {
                   <span className="text-white text-xs font-bold">✓</span>
                 </div>
               )}
+              {collected && reviewed && (
+                <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center z-20 shadow">
+                  <Star size={10} className="text-white fill-white" />
+                </div>
+              )}
             </div>
 
             {/* 기관명 */}
@@ -82,7 +102,12 @@ export default function StampGrid({ organizations, stampedOrgIds }: Props) {
             >
               {org.name.length > 6 ? org.name.slice(0, 6) + '…' : org.name}
             </p>
-          </div>
+            {clickable && collected && (
+              <p className="text-[10px] text-amber-600 font-semibold leading-none">
+                {reviewed ? '평가 완료' : '평가하기'}
+              </p>
+            )}
+          </Wrapper>
         )
       })}
     </div>

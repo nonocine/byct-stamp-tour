@@ -1,10 +1,11 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
-import { MapPin, Clock, Users, ChevronDown, ChevronUp, ExternalLink, Info } from 'lucide-react'
+import { MapPin, Clock, Users, ChevronDown, ChevronUp, ExternalLink, Info, Check } from 'lucide-react'
 import OrgIcon from '@/components/OrgIcon'
 import { ORGANIZATIONS, PROGRAMS } from '@/lib/data'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/components/AuthProvider'
 import type { KakaoMapOrg } from '@/components/KakaoMap'
 
 const KakaoMap = dynamic(() => import('@/components/KakaoMap'), { ssr: false })
@@ -30,14 +31,22 @@ const ORG_ADDRESSES: Record<number, string> = {
 }
 
 export default function ProgramsPage() {
+  const { profile } = useAuth()
   const [expanded, setExpanded] = useState<number | null>(null)
   const [centerUrls, setCenterUrls] = useState<Record<number, string>>({})
+  const [appliedCenters, setAppliedCenters] = useState<Set<number>>(new Set())
+  const [submittingOrgId, setSubmittingOrgId] = useState<number | null>(null)
 
   const orgCardRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
   useEffect(() => {
     loadCenterUrls()
   }, [])
+
+  useEffect(() => {
+    if (profile) loadApplications()
+    else setAppliedCenters(new Set())
+  }, [profile])
 
   async function loadCenterUrls() {
     const { data } = await supabase.from('centers').select('id, program_url')
@@ -47,6 +56,121 @@ export default function ProgramsPage() {
       if (c.program_url) map[c.id] = c.program_url
     })
     setCenterUrls(map)
+  }
+
+  async function loadApplications() {
+    if (!profile) return
+    const { data } = await supabase
+      .from('applications')
+      .select('center_id')
+      .eq('participant_id', profile.id)
+    setAppliedCenters(new Set((data ?? []).map((r: any) => r.center_id)))
+  }
+
+  async function handleApplyComplete(orgId: number) {
+    console.log('[신청 완료] 호출됨, orgId =', orgId)
+
+    if (!profile) {
+      console.warn('[신청 완료] 로그인 정보 없음 — profile is null')
+      alert('로그인 후 이용해주세요.')
+      return
+    }
+    console.log('[신청 완료] 로그인 사용자 profile:', {
+      id: profile.id,
+      name: profile.name,
+      phone: profile.phone,
+    })
+
+    if (appliedCenters.has(orgId)) {
+      console.log('[신청 완료] 이미 신청한 기관, 무시')
+      return
+    }
+    const org = ORGANIZATIONS.find(o => o.id === orgId)
+    if (!org) {
+      console.warn('[신청 완료] 기관 정보를 찾지 못함, orgId =', orgId)
+      return
+    }
+
+    const payload = {
+      participant_id: profile.id,
+      participant_name: profile.name,
+      participant_phone: profile.phone,
+      center_id: orgId,
+      center_name: org.name,
+      status: 'pending',
+    }
+
+    // 필수 필드 누락 사전 검증
+    const missing = (Object.entries(payload) as [string, any][])
+      .filter(([k, v]) => k !== 'status' && (v === undefined || v === null || v === ''))
+      .map(([k]) => k)
+    if (missing.length > 0) {
+      console.error('[신청 완료] 필수 필드 누락:', missing, payload)
+      alert(`필수 정보가 누락되어 저장할 수 없습니다: ${missing.join(', ')}`)
+      return
+    }
+
+    console.log(
+      '[신청 완료] supabase.from("applications").upsert(payload, { onConflict: "participant_id,center_id" })',
+    )
+    console.log('[신청 완료] payload =', payload)
+
+    setSubmittingOrgId(orgId)
+    try {
+      // 1. applications 테이블 존재 여부 사전 확인 (table not found 식별용)
+      const probe = await supabase.from('applications').select('id').limit(1)
+      if (probe.error) {
+        console.error('[신청 완료] applications 테이블 접근 실패:', probe.error)
+        // 테이블이 없으면 PGRST205 ("relation ... does not exist")
+        if ((probe.error as any).code === 'PGRST205' || (probe.error.message ?? '').includes('does not exist')) {
+          alert(
+            'Supabase에 applications 테이블이 없습니다.\n' +
+              'supabase/schema.sql 의 applications 테이블 / 정책을 SQL Editor 에서 실행해주세요.',
+          )
+          return
+        }
+      }
+
+      const { data, error } = await supabase
+        .from('applications')
+        .upsert(payload, { onConflict: 'participant_id,center_id' })
+        .select()
+
+      if (error) {
+        console.error('[신청 완료] upsert 오류 — full error object:', error)
+        console.error('[신청 완료] error.message:', error.message)
+        console.error('[신청 완료] error.code   :', (error as any).code)
+        console.error('[신청 완료] error.details:', (error as any).details)
+        console.error('[신청 완료] error.hint   :', (error as any).hint)
+        throw error
+      }
+
+      console.log('[신청 완료] 저장 성공, 응답 데이터:', data)
+      setAppliedCenters(prev => {
+        const next = new Set(prev)
+        next.add(orgId)
+        return next
+      })
+    } catch (e: any) {
+      const rawMsg = e?.message ?? ''
+      const msg = rawMsg.toLowerCase()
+      console.error('[신청 완료] catch — exception:', e)
+
+      let userMsg = '신청 완료 등록에 실패했습니다. 다시 시도해주세요.'
+      if (msg.includes('failed to fetch') || msg.includes('network')) {
+        userMsg = '네트워크 오류가 발생했습니다.'
+      } else if ((e as any)?.code === 'PGRST205' || msg.includes('does not exist')) {
+        userMsg = 'applications 테이블이 없습니다. 관리자에게 문의해주세요.'
+      } else if ((e as any)?.code === '23503') {
+        userMsg = '참가자 정보를 찾을 수 없습니다. 다시 로그인 해주세요.'
+      } else if (rawMsg) {
+        // 개발 단계 — 실제 메시지를 보여주면 디버깅이 쉬워짐
+        userMsg = `신청 완료 등록 실패: ${rawMsg}`
+      }
+      alert(userMsg)
+    } finally {
+      setSubmittingOrgId(null)
+    }
   }
 
   function handleMarkerClick(orgId: number) {
@@ -126,22 +250,38 @@ export default function ProgramsPage() {
                     </div>
                   </div>
 
-                  {/* 신청 링크 */}
-                  <div className="px-4 pt-3">
+                  {/* 신청 링크 + 신청 완료 */}
+                  <div className="px-4 pt-3 flex gap-2">
                     {centerUrls[org.id] ? (
                       <a
                         href={centerUrls[org.id]}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-2 w-full py-3 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all"
+                        className="flex-1 flex items-center justify-center gap-2 py-3 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all"
                       >
                         프로그램 신청하기
                         <ExternalLink size={14} />
                       </a>
                     ) : (
-                      <div className="w-full py-3 bg-gray-100 text-gray-400 text-sm font-medium rounded-xl text-center">
+                      <div className="flex-1 py-3 bg-gray-100 text-gray-400 text-sm font-medium rounded-xl text-center">
                         준비중
                       </div>
+                    )}
+                    {appliedCenters.has(org.id) ? (
+                      <div className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-green-50 text-green-700 text-sm font-bold rounded-xl border border-green-200">
+                        <Check size={14} /> 신청완료
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleApplyComplete(org.id)}
+                        disabled={submittingOrgId === org.id || !profile}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-emerald-500 text-white text-sm font-bold rounded-xl hover:bg-emerald-600 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={!profile ? '로그인이 필요합니다' : ''}
+                      >
+                        {submittingOrgId === org.id ? '저장 중...' : '신청 완료했어요'}
+                        {submittingOrgId !== org.id && <Check size={14} />}
+                      </button>
                     )}
                   </div>
 
