@@ -219,7 +219,7 @@ export default function HomePage() {
             { step: '01', title: '회원가입 & 로그인', desc: '전화번호와 생년월일로 간편하게 가입해요' },
             { step: '02', title: '기관 방문 & 체험', desc: '17개 기관의 프로그램을 체험해요.\n프로그램 신청은 해당 기관 사이트에서 한번 더 해주세요' },
             { step: '03', title: '별점 평가 & 스탬프', desc: '체험 후 기관 담당자가 스탬프를 찍고 만족도 평가를 해요' },
-            { step: '04', title: '완주 인증', desc: '17개 모두 수집하면 완주 인증서를 받아요! 가장 많은 스탬프를 모은 청소년에게 포상' },
+            { step: '04', title: '완주 인증', desc: '17개 모두 수집하면 완주 인증서를 받아요! 가장 많은 스탬프를 모은 청소년에게 포상\n📜 스탬프 3개 이상 획득시 수료증 발급' },
           ].map(item => (
             <div key={item.step} className="flex items-start gap-3">
               <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
