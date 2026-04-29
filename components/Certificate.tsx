@@ -42,7 +42,7 @@ const Certificate = forwardRef<HTMLDivElement, Props>(function Certificate(
         width: 794,
         minHeight: 1123,
         background: '#ffffff',
-        padding: '32px 64px',
+        padding: '64px 64px 32px',
         fontFamily: '"Noto Sans KR", "Malgun Gothic", -apple-system, BlinkMacSystemFont, sans-serif',
         color: '#111827',
         boxSizing: 'border-box',
@@ -106,7 +106,7 @@ const Certificate = forwardRef<HTMLDivElement, Props>(function Certificate(
           border: '1.5px solid #e2e8f0',
           borderRadius: 16,
           padding: '20px 28px',
-          marginBottom: 18,
+          marginBottom: 36,
         }}
       >
         <p style={{ fontSize: 17, lineHeight: 1.9, textAlign: 'center', margin: 0 }}>
