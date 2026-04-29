@@ -40,13 +40,19 @@ const Certificate = forwardRef<HTMLDivElement, Props>(function Certificate(
       ref={ref}
       style={{
         width: 794,
+        minHeight: 1123,
         background: '#ffffff',
-        padding: '56px 64px',
+        padding: '32px 64px',
         fontFamily: '"Noto Sans KR", "Malgun Gothic", -apple-system, BlinkMacSystemFont, sans-serif',
         color: '#111827',
         boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
       }}
     >
+    <div>
+      {/* — 상단 그룹 시작 — */}
       {/* 상단 로고 */}
       <div style={{ textAlign: 'center', marginBottom: 8 }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -153,7 +159,10 @@ const Certificate = forwardRef<HTMLDivElement, Props>(function Certificate(
         </div>
       </div>
 
-      {/* 하단 발급 정보 — 기관 목록 바로 아래에 일반 블록 흐름으로 배치 */}
+      {/* — 상단 그룹 끝 — */}
+      </div>
+
+      {/* 하단 발급 정보 — flex space-between로 항상 페이지 하단 */}
       <div style={{ marginTop: 24 }}>
         <p style={{ textAlign: 'center', fontSize: 15, color: '#475569', marginBottom: 14 }}>
           발급일: {formatKDate(issueDate)}
