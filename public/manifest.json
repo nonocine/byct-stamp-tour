@@ -1,0 +1,11 @@
+{
+  "name": "B.Y.C.T 스탬프투어",
+  "short_name": "BYCT투어",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "theme_color": "#1a3a8c",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "start_url": "/"
+}

@@ -1,0 +1,12 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect x="0" y="0" width="512" height="512" rx="115" fill="#ffffff" stroke="#1a3a8c" stroke-width="10"/>
+  <circle cx="256" cy="230" r="175" fill="none" stroke="#4caf50" stroke-width="10" stroke-dasharray="20 10"/>
+  <circle cx="256" cy="230" r="143" fill="none" stroke="#1a3a8c" stroke-width="5"/>
+  <rect x="175" y="165" width="38" height="122" rx="6" fill="#f5a623"/>
+  <rect x="221" y="133" width="44" height="154" rx="6" fill="#1a3a8c"/>
+  <rect x="273" y="165" width="38" height="122" rx="6" fill="#4caf50"/>
+  <circle cx="243" cy="152" r="16" fill="#ffffff"/>
+  <path d="M224 192 Q243 176 262 192" stroke="#ffffff" stroke-width="7" fill="none"/>
+  <polygon points="318,118 324,136 343,136 329,147 334,165 318,154 302,165 307,147 293,136 312,136" fill="#f5a623"/>
+  <text x="256" y="460" text-anchor="middle" fill="#1a3a8c" font-size="44" font-family="Arial, sans-serif" font-weight="bold">B.Y.C.T 스탬프투어</text>
+</svg>

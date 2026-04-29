@@ -7,6 +7,11 @@ export const metadata: Metadata = {
   title: 'B.Y.C.T 부산 청소년 스탬프투어',
   description: '부산 17개 청소년기관을 체험하고 스탬프를 모아 완주 인증을 받으세요!',
   metadataBase: new URL('https://byct-stamp-tour.vercel.app'),
+  manifest: '/manifest.json',
+  icons: {
+    icon: '/icon.svg',
+    apple: '/icon.svg',
+  },
   openGraph: {
     title: 'B.Y.C.T 부산 청소년 스탬프투어',
     description: '부산 17개 청소년기관을 체험하고 스탬프를 모아 완주 인증을 받으세요!',
@@ -26,6 +31,7 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
+  themeColor: '#1a3a8c',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
