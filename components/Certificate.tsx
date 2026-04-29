@@ -48,14 +48,14 @@ const Certificate = forwardRef<HTMLDivElement, Props>(function Certificate(
       }}
     >
       {/* 상단 로고 */}
-      <div style={{ textAlign: 'center', marginBottom: 16 }}>
+      <div style={{ textAlign: 'center', marginBottom: 8 }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="/images/association-logo.png"
           alt="부산광역시청소년수련시설협회"
           crossOrigin="anonymous"
           style={{
-            height: 90,
+            height: 80,
             objectFit: 'contain',
             display: 'inline-block',
             mixBlendMode: 'multiply',
@@ -69,62 +69,61 @@ const Certificate = forwardRef<HTMLDivElement, Props>(function Certificate(
           height: 4,
           background: 'linear-gradient(90deg, #1d4ed8, #3b82f6, #1d4ed8)',
           borderRadius: 2,
-          marginBottom: 36,
+          marginBottom: 18,
         }}
       />
 
       {/* 제목: "2026 B.Y.C.T 부산 청소년 스탬프투어 참가/완주 인증서" */}
-      <p style={{ textAlign: 'center', fontSize: 17, color: '#3b82f6', fontWeight: 700, letterSpacing: 1, marginBottom: 14 }}>
+      <p style={{ textAlign: 'center', fontSize: 16, color: '#3b82f6', fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
         2026 B.Y.C.T 부산 청소년 스탬프투어
       </p>
       <h1
         style={{
           textAlign: 'center',
-          fontSize: 50,
+          fontSize: 46,
           fontWeight: 900,
           letterSpacing: 16,
           color: '#0f172a',
-          marginBottom: 8,
+          marginBottom: 4,
         }}
       >
         수 료 증
       </h1>
-      <p style={{ textAlign: 'center', fontSize: 13, color: '#9ca3af', marginBottom: 44 }}>
+      <p style={{ textAlign: 'center', fontSize: 12, color: '#9ca3af', marginBottom: 20 }}>
         Certificate of Completion
       </p>
 
-      {/* 본문 */}
+      {/* 본문 — 2줄 */}
       <div
         style={{
           background: '#f8fafc',
           border: '1.5px solid #e2e8f0',
           borderRadius: 16,
-          padding: '32px 36px',
-          marginBottom: 32,
+          padding: '20px 28px',
+          marginBottom: 18,
         }}
       >
-        <p style={{ fontSize: 18, lineHeight: 2.0, textAlign: 'center', margin: 0 }}>
-          <span style={{ fontWeight: 800, fontSize: 22, color: '#1d4ed8' }}>{participantName}</span>{' '}
-          님은 2026년 B.Y.C.T 부산 청소년 스탬프투어에<br />
-          참가하여 <strong>17개 기관 중 {stamps.length}개 기관</strong>을 체험하였음을<br />
-          인증합니다.
+        <p style={{ fontSize: 17, lineHeight: 1.9, textAlign: 'center', margin: 0 }}>
+          <span style={{ fontWeight: 800, fontSize: 21, color: '#1d4ed8' }}>{participantName}</span>{' '}
+          님은 2026년 B.Y.C.T 부산 청소년 스탬프투어에 참가하여<br />
+          <strong>17개 기관 중 {stamps.length}개 기관</strong>을 체험하였음을 인증합니다.
         </p>
       </div>
 
-      {/* 스탬프 목록 — 3열 그리드 */}
-      <div style={{ marginBottom: 32 }}>
-        <p style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 10, textAlign: 'center', letterSpacing: 2 }}>
+      {/* 스탬프 목록 — 2열 그리드 (긴 기관명 안 잘리게) */}
+      <div style={{ marginBottom: 16 }}>
+        <p style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6, textAlign: 'center', letterSpacing: 2 }}>
           체 험 기 관 목 록
         </p>
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr 1fr',
-            columnGap: 16,
-            rowGap: 4,
+            gridTemplateColumns: '1fr 1fr',
+            columnGap: 24,
+            rowGap: 2,
             border: '1px solid #e2e8f0',
             borderRadius: 12,
-            padding: '12px 14px',
+            padding: '10px 16px',
             background: '#ffffff',
           }}
         >
@@ -136,23 +135,15 @@ const Certificate = forwardRef<HTMLDivElement, Props>(function Certificate(
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 fontSize: 11,
-                padding: '4px 0',
-                gap: 6,
+                padding: '3px 0',
+                gap: 8,
               }}
             >
-              <span style={{ color: '#0f172a', display: 'flex', minWidth: 0, flex: 1 }}>
-                <span style={{ color: '#94a3b8', marginRight: 4, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+              <span style={{ color: '#0f172a', display: 'flex', minWidth: 0, flex: 1, whiteSpace: 'nowrap' }}>
+                <span style={{ color: '#94a3b8', marginRight: 6, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
                   {String(idx + 1).padStart(2, '0')}.
                 </span>
-                <span
-                  style={{
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {s.center_name}
-                </span>
+                <span style={{ whiteSpace: 'nowrap' }}>{s.center_name}</span>
               </span>
               <span style={{ color: '#94a3b8', fontSize: 10, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
                 {formatStampDate(s.stamped_at)}
@@ -163,8 +154,8 @@ const Certificate = forwardRef<HTMLDivElement, Props>(function Certificate(
       </div>
 
       {/* 하단 발급 정보 — 기관 목록 바로 아래에 일반 블록 흐름으로 배치 */}
-      <div style={{ marginTop: 30 }}>
-        <p style={{ textAlign: 'center', fontSize: 16, color: '#475569', marginBottom: 18 }}>
+      <div style={{ marginTop: 24 }}>
+        <p style={{ textAlign: 'center', fontSize: 15, color: '#475569', marginBottom: 14 }}>
           발급일: {formatKDate(issueDate)}
         </p>
         {/* 협회명 + 도장: 같은 라인에 나란히 */}
