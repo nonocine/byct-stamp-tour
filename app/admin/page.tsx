@@ -1165,13 +1165,13 @@ export default function AdminPage() {
         </button>
       </div>
 
-      {/* 탭 — 4개이므로 스크롤 가능하게 */}
-      <div className="px-4 mb-4 flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+      {/* 탭 — 2행 그리드 (한 줄에 4개) */}
+      <div className="px-4 mb-4 grid grid-cols-4 gap-2">
         {tabs.map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`flex-shrink-0 py-2.5 px-4 text-sm font-semibold rounded-xl transition-colors ${tab === t.key ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            className={`py-2.5 px-2 text-xs sm:text-sm font-semibold rounded-xl transition-colors ${tab === t.key ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
           >
             {t.label}
           </button>
