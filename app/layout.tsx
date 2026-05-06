@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import Navigation from '@/components/Navigation'
 import { AuthProvider } from '@/components/AuthProvider'
+import Splash from '@/components/Splash'
 
 export const metadata: Metadata = {
   title: 'B.Y.C.T 부산 청소년 스탬프투어',
@@ -38,6 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ko">
       <body className="min-h-screen bg-gray-50">
+        <Splash />
         <AuthProvider>
           <Navigation />
           <main className="max-w-2xl mx-auto pt-14 pb-20">
