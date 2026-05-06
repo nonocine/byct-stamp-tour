@@ -2286,12 +2286,12 @@ export default function AdminPage() {
                                 {program.image_url && (
                                   <img
                                     src={program.image_url}
-                                    alt={program.name}
+                                    alt={program.title}
                                     className="w-16 h-16 object-cover rounded-lg flex-shrink-0 border border-gray-200"
                                   />
                                 )}
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-semibold text-gray-900 truncate">{program.name}</p>
+                                  <p className="text-sm font-semibold text-gray-900 truncate">{program.title}</p>
                                   <p className="text-xs text-gray-500 mt-0.5 truncate">
                                     {program.date} · {program.time}
                                   </p>

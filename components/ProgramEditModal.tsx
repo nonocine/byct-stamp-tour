@@ -12,7 +12,7 @@ interface Props {
 }
 
 export default function ProgramEditModal({ program, ownerOrgId, onClose, onSaved }: Props) {
-  const [name, setName] = useState(program.name)
+  const [title, setTitle] = useState(program.title)
   const [description, setDescription] = useState(program.description ?? '')
   const [date, setDate] = useState(program.date ?? '')
   const [time, setTime] = useState(program.time ?? '')
@@ -49,7 +49,7 @@ export default function ProgramEditModal({ program, ownerOrgId, onClose, onSaved
 
   async function handleSave() {
     setError('')
-    if (!name.trim()) { setError('프로그램 제목을 입력해주세요.'); return }
+    if (!title.trim()) { setError('프로그램 제목을 입력해주세요.'); return }
     const cap = Number(capacity)
     if (!Number.isFinite(cap) || cap < 0) { setError('정원은 0 이상의 숫자여야 합니다.'); return }
 
@@ -61,7 +61,7 @@ export default function ProgramEditModal({ program, ownerOrgId, onClose, onSaved
       }
 
       const payload = {
-        name: name.trim(),
+        title: title.trim(),
         description: description.trim(),
         date: date.trim(),
         time: time.trim(),
@@ -142,8 +142,8 @@ export default function ProgramEditModal({ program, ownerOrgId, onClose, onSaved
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1.5">프로그램 제목</label>
             <input
-              value={name}
-              onChange={e => setName(e.target.value)}
+              value={title}
+              onChange={e => setTitle(e.target.value)}
               className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-gray-800"
             />
           </div>

@@ -26,7 +26,7 @@ export interface Organization {
 export interface Program {
   id: string
   organization_id: number
-  name: string
+  title: string
   description: string
   date: string
   time: string

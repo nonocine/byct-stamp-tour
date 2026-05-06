@@ -28,7 +28,7 @@ export async function fetchProgramsByOrg(orgId: number): Promise<Program[]> {
 }
 
 export interface ProgramUpdatePayload {
-  name: string
+  title: string
   description: string
   date: string
   time: string

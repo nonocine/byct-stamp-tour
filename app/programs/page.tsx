@@ -299,12 +299,12 @@ export default function ProgramsPage() {
                       {program.image_url && (
                         <img
                           src={program.image_url}
-                          alt={program.name}
+                          alt={program.title}
                           className="w-full aspect-video object-cover rounded-xl mb-2 border border-gray-100"
                           loading="lazy"
                         />
                       )}
-                      <p className="text-sm font-semibold text-gray-900">{program.name}</p>
+                      <p className="text-sm font-semibold text-gray-900">{program.title}</p>
                       <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{program.description}</p>
                       <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
                         <span className="flex items-center gap-1 text-xs text-gray-500">
