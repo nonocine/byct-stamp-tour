@@ -10,9 +10,12 @@ import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { useAdmin } from '@/components/AdminProvider'
 import { ORGANIZATIONS } from '@/lib/data'
+import { fetchAllPrograms } from '@/lib/programs'
+import type { Program } from '@/lib/types'
 import OrgIcon from '@/components/OrgIcon'
+import ProgramEditModal from '@/components/ProgramEditModal'
 
-type Tab = 'dashboard' | 'stamp' | 'participants' | 'admins' | 'links' | 'reviews' | 'applications'
+type Tab = 'dashboard' | 'stamp' | 'participants' | 'admins' | 'links' | 'reviews' | 'applications' | 'programs'
 
 const PAGE_SIZE = 20
 
@@ -201,6 +204,21 @@ export default function AdminPage() {
   const [applicationCenterId, setApplicationCenterId] = useState<number | null>(null)
   const [pendingCount, setPendingCount] = useState(0)
   const [processingAppId, setProcessingAppId] = useState<string | null>(null)
+
+  // ── 프로그램 관리 ────────────────────────────────────────────────────────
+  const [programs, setPrograms] = useState<Program[]>([])
+  const [programsLoading, setProgramsLoading] = useState(false)
+  const [editingProgram, setEditingProgram] = useState<Program | null>(null)
+
+  async function loadPrograms() {
+    setProgramsLoading(true)
+    try {
+      const data = await fetchAllPrograms()
+      setPrograms(data)
+    } finally {
+      setProgramsLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (!loading && !admin) router.replace('/admin/login')
@@ -1081,6 +1099,7 @@ export default function AdminPage() {
       loadApplications(initial)
       loadPendingCount()
     }
+    if (tab === 'programs') loadPrograms()
   }, [tab, admin, loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 인증 직후 대기 인원 카운트 로드 (탭 배지용)
@@ -1137,6 +1156,7 @@ export default function AdminPage() {
     { key: 'participants', label: '참가자 관리' },
     { key: 'reviews', label: '평가 모아보기' },
     { key: 'links', label: '기관 링크' },
+    { key: 'programs', label: '프로그램 관리' },
     ...(admin.role === 'super' ? [{ key: 'admins' as Tab, label: '관리자 관리' }] : []),
   ]
 
@@ -2215,6 +2235,107 @@ export default function AdminPage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          프로그램 관리 탭
+      ══════════════════════════════════════════════════════════════════ */}
+      {tab === 'programs' && (
+        <div className="px-4 space-y-4">
+          {admin.role === 'center' && (
+            <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3">
+              <p className="text-xs text-blue-700">
+                <span className="font-semibold">{admin.center_name ?? '본인 기관'}</span>의 프로그램만 수정할 수 있습니다.
+              </p>
+            </div>
+          )}
+
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                <Edit2 size={15} /> 프로그램 목록
+              </h2>
+              <button onClick={loadPrograms} className="text-gray-400 hover:text-gray-600 transition-colors">
+                <RefreshCw size={13} className={programsLoading ? 'animate-spin' : ''} />
+              </button>
+            </div>
+
+            {programsLoading ? (
+              <div className="py-10 flex justify-center"><RefreshCw size={18} className="animate-spin text-gray-300" /></div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {ORGANIZATIONS
+                  .filter(org => admin.role === 'super' || admin.center_id === org.id)
+                  .map(org => {
+                    const orgPrograms = programs.filter(p => p.organization_id === org.id)
+                    const editable = admin.role === 'super' || admin.center_id === org.id
+                    return (
+                      <div key={org.id} className="px-5 py-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <OrgIcon org={org} size={28} rounded="rounded-lg" />
+                          <p className="text-sm font-semibold text-gray-900 flex-1 min-w-0 truncate">{org.name}</p>
+                          <span className="text-xs text-gray-400 flex-shrink-0">{orgPrograms.length}개</span>
+                        </div>
+
+                        {orgPrograms.length === 0 ? (
+                          <p className="text-xs text-gray-400 py-2 pl-9">등록된 프로그램이 없습니다</p>
+                        ) : (
+                          <div className="space-y-2 pl-9">
+                            {orgPrograms.map(program => (
+                              <div key={program.id} className="bg-gray-50 rounded-xl p-3 flex gap-3">
+                                {program.image_url && (
+                                  <img
+                                    src={program.image_url}
+                                    alt={program.name}
+                                    className="w-16 h-16 object-cover rounded-lg flex-shrink-0 border border-gray-200"
+                                  />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-semibold text-gray-900 truncate">{program.name}</p>
+                                  <p className="text-xs text-gray-500 mt-0.5 truncate">
+                                    {program.date} · {program.time}
+                                  </p>
+                                  <p className="text-xs text-gray-400 mt-0.5">
+                                    정원 {program.capacity}명 · {program.target}
+                                  </p>
+                                </div>
+                                {editable && (
+                                  <button
+                                    onClick={() => setEditingProgram(program)}
+                                    className="self-start flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 active:scale-95 transition-all flex-shrink-0"
+                                  >
+                                    <Edit2 size={11} /> 수정
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+              </div>
+            )}
+          </div>
+
+          <p className="text-xs text-gray-400 text-center px-2">
+            수정한 내용은 참가자 화면의 프로그램 목록에 즉시 반영됩니다.
+          </p>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          프로그램 수정 모달
+      ══════════════════════════════════════════════════════════════════ */}
+      {editingProgram && (
+        <ProgramEditModal
+          program={editingProgram}
+          ownerOrgId={editingProgram.organization_id}
+          onClose={() => setEditingProgram(null)}
+          onSaved={updated => {
+            setPrograms(prev => prev.map(p => p.id === updated.id ? updated : p))
+          }}
+        />
       )}
 
       {/* ══════════════════════════════════════════════════════════════════

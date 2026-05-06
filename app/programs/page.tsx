@@ -3,10 +3,12 @@ import { useState, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { MapPin, Clock, Users, ChevronDown, ChevronUp, ExternalLink, Info, Check } from 'lucide-react'
 import OrgIcon from '@/components/OrgIcon'
-import { ORGANIZATIONS, PROGRAMS } from '@/lib/data'
+import { ORGANIZATIONS } from '@/lib/data'
+import { fetchAllPrograms } from '@/lib/programs'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/AuthProvider'
 import type { KakaoMapOrg } from '@/components/KakaoMap'
+import type { Program } from '@/lib/types'
 
 const KakaoMap = dynamic(() => import('@/components/KakaoMap'), { ssr: false })
 
@@ -36,12 +38,19 @@ export default function ProgramsPage() {
   const [centerUrls, setCenterUrls] = useState<Record<number, string>>({})
   const [appliedCenters, setAppliedCenters] = useState<Set<number>>(new Set())
   const [submittingOrgId, setSubmittingOrgId] = useState<number | null>(null)
+  const [programs, setPrograms] = useState<Program[]>([])
 
   const orgCardRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
   useEffect(() => {
     loadCenterUrls()
+    loadPrograms()
   }, [])
+
+  async function loadPrograms() {
+    const data = await fetchAllPrograms()
+    setPrograms(data)
+  }
 
   useEffect(() => {
     if (profile) loadApplications()
@@ -215,7 +224,7 @@ export default function ProgramsPage() {
       {/* 기관 목록 */}
       <div className="px-4 space-y-3">
         {ORGANIZATIONS.map(org => {
-          const orgPrograms = PROGRAMS.filter(p => p.organization_id === org.id)
+          const orgPrograms = programs.filter(p => p.organization_id === org.id)
           const isExpanded  = expanded === org.id
 
           return (
@@ -287,6 +296,14 @@ export default function ProgramsPage() {
 
                   {orgPrograms.map((program, idx) => (
                     <div key={program.id} className={`px-4 py-3.5 ${idx > 0 ? 'border-t border-gray-100' : ''}`}>
+                      {program.image_url && (
+                        <img
+                          src={program.image_url}
+                          alt={program.name}
+                          className="w-full aspect-video object-cover rounded-xl mb-2 border border-gray-100"
+                          loading="lazy"
+                        />
+                      )}
                       <p className="text-sm font-semibold text-gray-900">{program.name}</p>
                       <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{program.description}</p>
                       <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">

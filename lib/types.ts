@@ -33,6 +33,8 @@ export interface Program {
   capacity: number
   location: string
   target: string
+  image_url?: string | null
+  updated_at?: string
 }
 
 export interface Stamp {
