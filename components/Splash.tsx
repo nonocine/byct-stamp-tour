@@ -19,8 +19,8 @@ export default function Splash() {
       <img
         src="/association-logo.png"
         alt="B.Y.C.T"
-        width={200}
-        height={200}
+        width={400}
+        height={400}
         className="object-contain"
       />
       <p className="mt-5 text-lg font-bold text-gray-800 tracking-tight">
