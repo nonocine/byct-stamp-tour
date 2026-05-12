@@ -21,6 +21,21 @@ import { useOrgLogos } from '@/components/OrgLogosProvider'
 type Tab = 'dashboard' | 'stamp' | 'participants' | 'admins' | 'links' | 'reviews' | 'applications' | 'programs' | 'reports'
 
 const PAGE_SIZE = 20
+const PARTICIPANTS_PAGE_SIZE = 10
+
+// 페이지 번호 리스트 — 7개 이하면 전체, 그 이상이면 ellipsis 로 압축
+function buildPageList(current: number, total: number): (number | 'ellipsis')[] {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i)
+  }
+  if (current <= 3) {
+    return [0, 1, 2, 3, 4, 'ellipsis', total - 1]
+  }
+  if (current >= total - 4) {
+    return [0, 'ellipsis', total - 5, total - 4, total - 3, total - 2, total - 1]
+  }
+  return [0, 'ellipsis', current - 1, current, current + 1, 'ellipsis', total - 1]
+}
 
 // ── 타입 정의 ────────────────────────────────────────────────────────────────
 
@@ -785,12 +800,12 @@ export default function AdminPage() {
         }
       }
 
-      const from = p * PAGE_SIZE
+      const from = p * PARTICIPANTS_PAGE_SIZE
       let query = supabase
         .from('profiles')
         .select('id, name, phone, birthdate, created_at', { count: 'exact' })
         .order('created_at', { ascending: false })
-        .range(from, from + PAGE_SIZE - 1)
+        .range(from, from + PARTICIPANTS_PAGE_SIZE - 1)
 
       if (filterIds) query = query.in('id', filterIds)
 
@@ -1659,7 +1674,7 @@ export default function AdminPage() {
   ]
 
   const dashTotalPages = Math.ceil(dashTotal / PAGE_SIZE)
-  const pTotalPages = Math.ceil(pTotal / PAGE_SIZE)
+  const pTotalPages = Math.ceil(pTotal / PARTICIPANTS_PAGE_SIZE)
 
   return (
     <div className="py-5">
@@ -2143,7 +2158,7 @@ export default function AdminPage() {
                     ? '전체 참가자'
                     : `${ORGANIZATIONS.find(o => o.id === pCenterId)?.name ?? ''} 참가자`}
                 </span>
-                {!pLoading && <span className="text-xs text-gray-400 font-normal flex-shrink-0">{pTotal}명</span>}
+                {!pLoading && <span className="text-xs text-gray-400 font-normal flex-shrink-0">전체 {pTotal}명</span>}
               </h2>
               <button onClick={() => loadParticipants(pPage, pSearch, pCenterId)} className="text-gray-400 hover:text-gray-600 transition-colors">
                 <RefreshCw size={13} className={pLoading ? 'animate-spin' : ''} />
@@ -2250,13 +2265,37 @@ export default function AdminPage() {
             )}
 
             {pTotalPages > 1 && !pLoading && (
-              <div className="px-5 py-3.5 border-t border-gray-100 flex items-center justify-between">
-                <button onClick={() => setPPage(p => Math.max(0, p - 1))} disabled={pPage === 0} className="flex items-center gap-1 text-xs text-gray-500 disabled:opacity-30 hover:text-gray-900 transition-colors">
-                  <ChevronLeft size={14} /> 이전
+              <div className="px-3 py-3.5 border-t border-gray-100 flex items-center justify-center gap-1 flex-wrap">
+                <button
+                  onClick={() => setPPage(p => Math.max(0, p - 1))}
+                  disabled={pPage === 0}
+                  className="flex items-center gap-1 px-2.5 h-7 text-xs font-semibold text-gray-600 rounded-md hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                >
+                  <ChevronLeft size={13} /> 이전
                 </button>
-                <span className="text-xs text-gray-500">{pPage + 1} / {pTotalPages}</span>
-                <button onClick={() => setPPage(p => Math.min(pTotalPages - 1, p + 1))} disabled={pPage >= pTotalPages - 1} className="flex items-center gap-1 text-xs text-gray-500 disabled:opacity-30 hover:text-gray-900 transition-colors">
-                  다음 <ChevronRight size={14} />
+                {buildPageList(pPage, pTotalPages).map((item, idx) =>
+                  item === 'ellipsis' ? (
+                    <span key={`e-${idx}`} className="px-1 text-xs text-gray-400">…</span>
+                  ) : (
+                    <button
+                      key={item}
+                      onClick={() => setPPage(item)}
+                      className={`min-w-[28px] h-7 px-2 text-xs font-semibold rounded-md transition-colors ${
+                        item === pPage
+                          ? 'bg-blue-600 text-white'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {item + 1}
+                    </button>
+                  ),
+                )}
+                <button
+                  onClick={() => setPPage(p => Math.min(pTotalPages - 1, p + 1))}
+                  disabled={pPage >= pTotalPages - 1}
+                  className="flex items-center gap-1 px-2.5 h-7 text-xs font-semibold text-gray-600 rounded-md hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+                >
+                  다음 <ChevronRight size={13} />
                 </button>
               </div>
             )}
