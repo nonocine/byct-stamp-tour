@@ -5,7 +5,7 @@ import {
   BarChart3, Users, Stamp, TrendingUp, RefreshCw, Search, CheckCircle, XCircle,
   LogOut, Shield, Plus, Trash2, Phone, UserCheck, ChevronLeft, ChevronRight,
   Edit2, X, Save, ChevronDown, ChevronUp, Download, Link2, ExternalLink, Star,
-  Image as ImageIcon,
+  Image as ImageIcon, Upload, FileText,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
@@ -226,6 +226,114 @@ export default function AdminPage() {
       setPrograms(data)
     } finally {
       setProgramsLoading(false)
+    }
+  }
+
+  // ── 프로그램 계획서 PDF 업로드 ──────────────────────────────────────────
+  const pdfInputRef = useRef<HTMLInputElement>(null)
+  const [pdfTargetProgramId, setPdfTargetProgramId] = useState<string | null>(null)
+  const [uploadingPdfProgramId, setUploadingPdfProgramId] = useState<string | null>(null)
+
+  function triggerPdfUpload(programId: string) {
+    setPdfTargetProgramId(programId)
+    if (pdfInputRef.current) pdfInputRef.current.value = ''
+    pdfInputRef.current?.click()
+  }
+
+  async function handlePdfFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    const programId = pdfTargetProgramId
+    e.target.value = ''
+    if (!file || !programId) return
+
+    // 1) PDF 형식 검증
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+    if (!isPdf) {
+      alert('PDF 파일만 업로드 가능합니다.')
+      setPdfTargetProgramId(null)
+      return
+    }
+    // 2) 크기 검증 (10MB)
+    const MAX_SIZE = 10 * 1024 * 1024
+    if (file.size > MAX_SIZE) {
+      alert(`파일 크기가 너무 큽니다. (${(file.size / 1024 / 1024).toFixed(1)}MB)\n10MB 이하의 PDF만 업로드 가능합니다.`)
+      setPdfTargetProgramId(null)
+      return
+    }
+    // 3) 권한 검증
+    const program = programs.find(p => p.id === programId)
+    if (!program) return
+    if (admin?.role === 'center' && admin.center_id !== program.organization_id) {
+      alert('본인 기관 프로그램의 계획서만 업로드할 수 있습니다.')
+      setPdfTargetProgramId(null)
+      return
+    }
+
+    setUploadingPdfProgramId(programId)
+    try {
+      const path = `programs/${programId}-${Date.now()}.pdf`
+      const { error: uploadErr } = await supabase.storage
+        .from('program-plans')
+        .upload(path, file, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: 'application/pdf',
+        })
+      if (uploadErr) throw uploadErr
+
+      const { data: pub } = supabase.storage.from('program-plans').getPublicUrl(path)
+      const publicUrl = pub.publicUrl
+
+      const { error: dbErr } = await supabase
+        .from('programs')
+        .update({ plan_pdf_url: publicUrl })
+        .eq('id', programId)
+      if (dbErr) throw dbErr
+
+      setPrograms(prev =>
+        prev.map(p => (p.id === programId ? { ...p, plan_pdf_url: publicUrl } : p)),
+      )
+    } catch (err: any) {
+      alert(`PDF 업로드 실패: ${err?.message ?? err}`)
+    } finally {
+      setUploadingPdfProgramId(null)
+      setPdfTargetProgramId(null)
+    }
+  }
+
+  async function handleDeletePdf(program: Program) {
+    if (!program.plan_pdf_url) return
+    if (admin?.role === 'center' && admin.center_id !== program.organization_id) {
+      alert('본인 기관 프로그램의 계획서만 삭제할 수 있습니다.')
+      return
+    }
+    if (!confirm(`"${program.title}" 의 계획서 PDF를 삭제하시겠습니까?`)) return
+
+    setUploadingPdfProgramId(program.id)
+    try {
+      // Storage 파일 삭제 — public URL 에서 경로 추출
+      const marker = '/program-plans/'
+      const idx = program.plan_pdf_url.indexOf(marker)
+      if (idx >= 0) {
+        const path = program.plan_pdf_url.slice(idx + marker.length)
+        const { error: rmErr } = await supabase.storage.from('program-plans').remove([path])
+        if (rmErr) console.warn('[PDF 삭제] Storage 제거 실패:', rmErr.message)
+      }
+
+      // DB 컬럼 null 처리
+      const { error: dbErr } = await supabase
+        .from('programs')
+        .update({ plan_pdf_url: null })
+        .eq('id', program.id)
+      if (dbErr) throw dbErr
+
+      setPrograms(prev =>
+        prev.map(p => (p.id === program.id ? { ...p, plan_pdf_url: null } : p)),
+      )
+    } catch (err: any) {
+      alert(`PDF 삭제 실패: ${err?.message ?? err}`)
+    } finally {
+      setUploadingPdfProgramId(null)
     }
   }
 
@@ -2520,6 +2628,15 @@ export default function AdminPage() {
             onChange={handleLogoFileSelected}
           />
 
+          {/* PDF 업로드용 숨김 input — 한 개를 pdfTargetProgramId 로 공유 */}
+          <input
+            ref={pdfInputRef}
+            type="file"
+            accept=".pdf,application/pdf"
+            className="hidden"
+            onChange={handlePdfFileSelected}
+          />
+
           {admin.role === 'center' && (
             <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3">
               <p className="text-xs text-blue-700">
@@ -2579,34 +2696,102 @@ export default function AdminPage() {
                           <p className="text-xs text-gray-400 py-2 pl-9">등록된 프로그램이 없습니다</p>
                         ) : (
                           <div className="space-y-2 pl-9">
-                            {orgPrograms.map(program => (
-                              <div key={program.id} className="bg-gray-50 rounded-xl p-3 flex gap-3">
-                                {program.image_url && (
-                                  <img
-                                    src={program.image_url}
-                                    alt={program.title}
-                                    className="w-16 h-16 object-cover rounded-lg flex-shrink-0 border border-gray-200"
-                                  />
-                                )}
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-semibold text-gray-900 truncate">{program.title}</p>
-                                  <p className="text-xs text-gray-500 mt-0.5 truncate">
-                                    {program.date} · {program.time}
-                                  </p>
-                                  <p className="text-xs text-gray-400 mt-0.5">
-                                    정원 {program.capacity}명 · {program.target}
-                                  </p>
+                            {orgPrograms.map(program => {
+                              const pdfBusy = uploadingPdfProgramId === program.id
+                              return (
+                                <div key={program.id} className="bg-gray-50 rounded-xl p-3">
+                                  <div className="flex gap-3">
+                                    {program.image_url && (
+                                      <img
+                                        src={program.image_url}
+                                        alt={program.title}
+                                        className="w-16 h-16 object-cover rounded-lg flex-shrink-0 border border-gray-200"
+                                      />
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-semibold text-gray-900 truncate">{program.title}</p>
+                                      <p className="text-xs text-gray-500 mt-0.5 truncate">
+                                        {program.date} · {program.time}
+                                      </p>
+                                      <p className="text-xs text-gray-400 mt-0.5">
+                                        정원 {program.capacity}명 · {program.target}
+                                      </p>
+                                    </div>
+                                    {editable && (
+                                      <button
+                                        onClick={() => setEditingProgram(program)}
+                                        className="self-start flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 active:scale-95 transition-all flex-shrink-0"
+                                      >
+                                        <Edit2 size={11} /> 수정
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {/* 계획서 PDF 버튼 영역 */}
+                                  {editable && (
+                                    <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-gray-200">
+                                      {!program.plan_pdf_url ? (
+                                        <button
+                                          onClick={() => triggerPdfUpload(program.id)}
+                                          disabled={pdfBusy}
+                                          className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 text-gray-700 text-xs font-semibold rounded-lg hover:bg-gray-200 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                                        >
+                                          {pdfBusy ? (
+                                            <>
+                                              <RefreshCw size={11} className="animate-spin" />
+                                              업로드 중...
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Upload size={11} />
+                                              계획서 PDF 업로드
+                                            </>
+                                          )}
+                                        </button>
+                                      ) : (
+                                        <>
+                                          <button
+                                            onClick={() => triggerPdfUpload(program.id)}
+                                            disabled={pdfBusy}
+                                            className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 text-gray-700 text-xs font-semibold rounded-lg hover:bg-gray-200 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                                          >
+                                            {pdfBusy ? (
+                                              <>
+                                                <RefreshCw size={11} className="animate-spin" />
+                                                처리 중...
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Upload size={11} />
+                                                PDF 변경
+                                              </>
+                                            )}
+                                          </button>
+                                          <a
+                                            href={program.plan_pdf_url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-semibold rounded-lg hover:bg-blue-100 active:scale-95 transition-all"
+                                          >
+                                            <FileText size={11} />
+                                            PDF 보기
+                                            <ExternalLink size={10} />
+                                          </a>
+                                          <button
+                                            onClick={() => handleDeletePdf(program)}
+                                            disabled={pdfBusy}
+                                            className="flex items-center gap-1 px-3 py-1.5 bg-red-50 text-red-600 text-xs font-semibold rounded-lg hover:bg-red-100 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                                          >
+                                            <Trash2 size={11} />
+                                            삭제
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
-                                {editable && (
-                                  <button
-                                    onClick={() => setEditingProgram(program)}
-                                    className="self-start flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 active:scale-95 transition-all flex-shrink-0"
-                                  >
-                                    <Edit2 size={11} /> 수정
-                                  </button>
-                                )}
-                              </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         )}
                       </div>

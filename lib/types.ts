@@ -34,6 +34,7 @@ export interface Program {
   location: string
   target: string
   image_url?: string | null
+  plan_pdf_url?: string | null
   updated_at?: string
 }
 
