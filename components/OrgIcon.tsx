@@ -1,4 +1,6 @@
+'use client'
 import type { Organization } from '@/lib/types'
+import { useOrgLogos } from '@/components/OrgLogosProvider'
 
 interface OrgIconProps {
   org: Organization
@@ -10,13 +12,16 @@ interface OrgIconProps {
 }
 
 /**
- * 기관 아이콘: 로고 이미지가 있으면 흰 배경에 로고 표시,
- * 없으면 기관 색상 배경에 이니셜 표시.
+ * 기관 아이콘: DB(organization_logos)에 로고가 있으면 그걸 우선,
+ * 없으면 lib/data.ts 의 정적 logo, 그것도 없으면 색상 + 이니셜.
  */
 export default function OrgIcon({ org, size, rounded = 'rounded-xl', className = '' }: OrgIconProps) {
+  const { logos } = useOrgLogos()
+  const logoUrl = logos[org.id] ?? org.logo ?? null
+
   const base = `flex items-center justify-center flex-shrink-0 overflow-hidden ${rounded} ${className}`
 
-  if (org.logo) {
+  if (logoUrl) {
     return (
       <div
         className={`${base} bg-white`}
@@ -28,7 +33,7 @@ export default function OrgIcon({ org, size, rounded = 'rounded-xl', className =
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={org.logo}
+          src={logoUrl}
           alt={org.name}
           style={{ width: size - 6, height: size - 6, objectFit: 'contain' }}
         />

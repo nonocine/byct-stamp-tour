@@ -1,10 +1,11 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   BarChart3, Users, Stamp, TrendingUp, RefreshCw, Search, CheckCircle, XCircle,
   LogOut, Shield, Plus, Trash2, Phone, UserCheck, ChevronLeft, ChevronRight,
   Edit2, X, Save, ChevronDown, ChevronUp, Download, Link2, ExternalLink, Star,
+  Image as ImageIcon,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
@@ -14,6 +15,7 @@ import { fetchAllPrograms } from '@/lib/programs'
 import type { Program } from '@/lib/types'
 import OrgIcon from '@/components/OrgIcon'
 import ProgramEditModal from '@/components/ProgramEditModal'
+import { useOrgLogos } from '@/components/OrgLogosProvider'
 
 type Tab = 'dashboard' | 'stamp' | 'participants' | 'admins' | 'links' | 'reviews' | 'applications' | 'programs'
 
@@ -217,6 +219,53 @@ export default function AdminPage() {
       setPrograms(data)
     } finally {
       setProgramsLoading(false)
+    }
+  }
+
+  // ── 기관 로고 업로드 ─────────────────────────────────────────────────────
+  const { refresh: refreshOrgLogos } = useOrgLogos()
+  const logoInputRef = useRef<HTMLInputElement>(null)
+  const [logoTargetOrgId, setLogoTargetOrgId] = useState<number | null>(null)
+  const [uploadingLogoOrgId, setUploadingLogoOrgId] = useState<number | null>(null)
+
+  function triggerLogoUpload(orgId: number) {
+    setLogoTargetOrgId(orgId)
+    // 같은 파일을 다시 선택해도 onChange가 발화하도록 초기화
+    if (logoInputRef.current) logoInputRef.current.value = ''
+    logoInputRef.current?.click()
+  }
+
+  async function handleLogoFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    const orgId = logoTargetOrgId
+    e.target.value = ''
+    if (!file || !orgId) return
+
+    setUploadingLogoOrgId(orgId)
+    try {
+      const rawExt = (file.name.split('.').pop() ?? 'png').toLowerCase()
+      const ext = rawExt.replace(/[^a-z0-9]/g, '').slice(0, 5) || 'png'
+      const path = `${orgId}-${Date.now()}.${ext}`
+
+      const { error: uploadErr } = await supabase.storage
+        .from('org-logos')
+        .upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type })
+      if (uploadErr) throw uploadErr
+
+      const { data: pub } = supabase.storage.from('org-logos').getPublicUrl(path)
+      const publicUrl = pub.publicUrl
+
+      const { error: dbErr } = await supabase
+        .from('organization_logos')
+        .upsert({ center_id: orgId, logo_url: publicUrl }, { onConflict: 'center_id' })
+      if (dbErr) throw dbErr
+
+      await refreshOrgLogos()
+    } catch (err: any) {
+      alert(`로고 업로드 실패: ${err?.message ?? err}`)
+    } finally {
+      setUploadingLogoOrgId(null)
+      setLogoTargetOrgId(null)
     }
   }
 
@@ -2242,6 +2291,15 @@ export default function AdminPage() {
       ══════════════════════════════════════════════════════════════════ */}
       {tab === 'programs' && (
         <div className="px-4 space-y-4">
+          {/* 로고 업로드용 숨김 input — 한 개를 logoTargetOrgId 로 공유 */}
+          <input
+            ref={logoInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleLogoFileSelected}
+          />
+
           {admin.role === 'center' && (
             <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3">
               <p className="text-xs text-blue-700">
@@ -2274,6 +2332,26 @@ export default function AdminPage() {
                         <div className="flex items-center gap-2 mb-3">
                           <OrgIcon org={org} size={28} rounded="rounded-lg" />
                           <p className="text-sm font-semibold text-gray-900 flex-1 min-w-0 truncate">{org.name}</p>
+                          {editable && (
+                            <button
+                              onClick={() => triggerLogoUpload(org.id)}
+                              disabled={uploadingLogoOrgId === org.id}
+                              className="flex items-center gap-1 px-2.5 py-1 bg-gray-100 text-gray-700 text-xs font-semibold rounded-lg hover:bg-gray-200 active:scale-95 transition-all flex-shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
+                              title="기관 로고 변경"
+                            >
+                              {uploadingLogoOrgId === org.id ? (
+                                <>
+                                  <RefreshCw size={11} className="animate-spin" />
+                                  업로드중
+                                </>
+                              ) : (
+                                <>
+                                  <ImageIcon size={11} />
+                                  로고 변경
+                                </>
+                              )}
+                            </button>
+                          )}
                           <span className="text-xs text-gray-400 flex-shrink-0">{orgPrograms.length}개</span>
                         </div>
 

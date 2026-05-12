@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import Navigation from '@/components/Navigation'
 import { AuthProvider } from '@/components/AuthProvider'
+import { OrgLogosProvider } from '@/components/OrgLogosProvider'
 import Splash from '@/components/Splash'
 
 export const metadata: Metadata = {
@@ -40,12 +41,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ko">
       <body className="min-h-screen bg-gray-50" style={{ visibility: 'hidden' }}>
         <Splash />
-        <AuthProvider>
-          <Navigation />
-          <main className="max-w-2xl mx-auto pt-14 pb-20">
-            {children}
-          </main>
-        </AuthProvider>
+        <OrgLogosProvider>
+          <AuthProvider>
+            <Navigation />
+            <main className="max-w-2xl mx-auto pt-14 pb-20">
+              {children}
+            </main>
+          </AuthProvider>
+        </OrgLogosProvider>
       </body>
     </html>
   )
