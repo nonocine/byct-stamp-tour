@@ -12,6 +12,8 @@ import type { Program } from '@/lib/types'
 
 const KakaoMap = dynamic(() => import('@/components/KakaoMap'), { ssr: false })
 
+type AppStatus = 'pending' | 'approved' | 'rejected' | 'waiting'
+
 const ORG_ADDRESSES: Record<number, string> = {
   1:  '부산광역시 해운대구 재반로 151-21',
   2:  '부산광역시 부산진구 동평로405번길 85',
@@ -36,7 +38,7 @@ export default function ProgramsPage() {
   const { profile } = useAuth()
   const [expanded, setExpanded] = useState<number | null>(null)
   const [centerUrls, setCenterUrls] = useState<Record<number, string>>({})
-  const [appliedCenters, setAppliedCenters] = useState<Set<number>>(new Set())
+  const [appStatusByCenter, setAppStatusByCenter] = useState<Record<number, AppStatus>>({})
   const [submittingOrgId, setSubmittingOrgId] = useState<number | null>(null)
   const [programs, setPrograms] = useState<Program[]>([])
 
@@ -54,7 +56,7 @@ export default function ProgramsPage() {
 
   useEffect(() => {
     if (profile) loadApplications()
-    else setAppliedCenters(new Set())
+    else setAppStatusByCenter({})
   }, [profile])
 
   async function loadCenterUrls() {
@@ -71,9 +73,13 @@ export default function ProgramsPage() {
     if (!profile) return
     const { data } = await supabase
       .from('applications')
-      .select('center_id')
+      .select('center_id, status')
       .eq('participant_id', profile.id)
-    setAppliedCenters(new Set((data ?? []).map((r: any) => r.center_id)))
+    const map: Record<number, AppStatus> = {}
+    ;(data ?? []).forEach((r: any) => {
+      if (r.center_id != null && r.status) map[r.center_id] = r.status as AppStatus
+    })
+    setAppStatusByCenter(map)
   }
 
   async function handleApplyComplete(orgId: number) {
@@ -90,8 +96,9 @@ export default function ProgramsPage() {
       phone: profile.phone,
     })
 
-    if (appliedCenters.has(orgId)) {
-      console.log('[신청 완료] 이미 신청한 기관, 무시')
+    const currentStatus = appStatusByCenter[orgId]
+    if (currentStatus && currentStatus !== 'rejected') {
+      console.log('[신청 완료] 이미 신청한 기관, 무시 — 상태:', currentStatus)
       return
     }
     const org = ORGANIZATIONS.find(o => o.id === orgId)
@@ -155,11 +162,7 @@ export default function ProgramsPage() {
       }
 
       console.log('[신청 완료] 저장 성공, 응답 데이터:', data)
-      setAppliedCenters(prev => {
-        const next = new Set(prev)
-        next.add(orgId)
-        return next
-      })
+      setAppStatusByCenter(prev => ({ ...prev, [orgId]: 'pending' }))
     } catch (e: any) {
       const rawMsg = e?.message ?? ''
       const msg = rawMsg.toLowerCase()
@@ -276,22 +279,60 @@ export default function ProgramsPage() {
                         준비중
                       </div>
                     )}
-                    {appliedCenters.has(org.id) ? (
-                      <div className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-green-50 text-green-700 text-sm font-bold rounded-xl border border-green-200">
-                        <Check size={14} /> 신청완료
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleApplyComplete(org.id)}
-                        disabled={submittingOrgId === org.id || !profile}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-emerald-500 text-white text-sm font-bold rounded-xl hover:bg-emerald-600 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                        title={!profile ? '로그인이 필요합니다' : ''}
-                      >
-                        {submittingOrgId === org.id ? '저장 중...' : '신청 완료했어요'}
-                        {submittingOrgId !== org.id && <Check size={14} />}
-                      </button>
-                    )}
+                    {(() => {
+                      const status = appStatusByCenter[org.id]
+                      const submitting = submittingOrgId === org.id
+
+                      if (status === 'pending') {
+                        return (
+                          <div className="flex-1 flex items-center justify-center py-3 bg-amber-50 text-amber-700 text-sm font-bold rounded-xl border border-amber-200">
+                            ⏳ 승인 대기중
+                          </div>
+                        )
+                      }
+                      if (status === 'waiting') {
+                        return (
+                          <div className="flex-1 flex items-center justify-center py-3 bg-orange-50 text-orange-700 text-sm font-bold rounded-xl border border-orange-200">
+                            📋 대기열 등록
+                          </div>
+                        )
+                      }
+                      if (status === 'approved') {
+                        return (
+                          <div className="flex-1 flex flex-col items-center justify-center py-2 bg-green-50 text-green-700 text-sm font-bold rounded-xl border border-green-200 leading-tight">
+                            <span>✅ 승인 완료</span>
+                            <span className="text-[10px] font-medium mt-0.5">스탬프 발급됨</span>
+                          </div>
+                        )
+                      }
+                      if (status === 'rejected') {
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => handleApplyComplete(org.id)}
+                            disabled={submitting || !profile}
+                            className="flex-1 flex flex-col items-center justify-center py-2 bg-red-50 text-red-700 text-sm font-bold rounded-xl border border-red-200 hover:bg-red-100 active:scale-95 transition-all leading-tight disabled:opacity-50"
+                          >
+                            <span>❌ 거절됨</span>
+                            <span className="text-[10px] font-medium mt-0.5 underline">
+                              {submitting ? '재신청 중...' : '탭하여 재신청'}
+                            </span>
+                          </button>
+                        )
+                      }
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => handleApplyComplete(org.id)}
+                          disabled={submitting || !profile}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-emerald-500 text-white text-sm font-bold rounded-xl hover:bg-emerald-600 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                          title={!profile ? '로그인이 필요합니다' : ''}
+                        >
+                          {submitting ? '저장 중...' : '신청 완료했어요'}
+                          {!submitting && <Check size={14} />}
+                        </button>
+                      )
+                    })()}
                   </div>
 
                   {orgPrograms.map((program, idx) => (
