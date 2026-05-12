@@ -424,6 +424,81 @@ export default function AdminPage() {
     }
   }
 
+  // ── 저장된 보고서 ────────────────────────────────────────────────────────
+  interface SavedReportRow {
+    id: string
+    scope: 'center' | 'global'
+    center_id: number | null
+    title: string
+    created_by: string
+    created_at: string
+  }
+  const [savedReports, setSavedReports] = useState<SavedReportRow[]>([])
+  const [savedReportsLoading, setSavedReportsLoading] = useState(false)
+  const [loadedReport, setLoadedReport] = useState<{ markdown: string; key: string } | null>(null)
+
+  async function loadSavedReports() {
+    if (!admin) return
+    setSavedReportsLoading(true)
+    try {
+      let q = supabase
+        .from('reports')
+        .select('id, scope, center_id, title, created_by, created_at')
+        .order('created_at', { ascending: false })
+      if (admin.role === 'center') {
+        if (!admin.center_id) {
+          setSavedReports([])
+          return
+        }
+        q = q.eq('scope', 'center').eq('center_id', admin.center_id)
+      }
+      const { data } = await q
+      setSavedReports((data ?? []) as SavedReportRow[])
+    } finally {
+      setSavedReportsLoading(false)
+    }
+  }
+
+  async function handleLoadSavedReport(row: SavedReportRow) {
+    if (admin?.role === 'center') {
+      if (row.scope !== 'center' || row.center_id !== admin.center_id) return
+    }
+    try {
+      const { data, error } = await supabase
+        .from('reports')
+        .select('content_md')
+        .eq('id', row.id)
+        .single()
+      if (error) throw error
+      if (!data) return
+
+      if (row.scope === 'global') {
+        setReportScope('global')
+        setReportCenterId(null)
+      } else {
+        setReportScope('center')
+        setReportCenterId(row.center_id)
+      }
+      setLoadedReport({ markdown: data.content_md as string, key: `${row.id}-${Date.now()}` })
+    } catch (e: any) {
+      alert(`보고서 불러오기 실패: ${e?.message ?? e}`)
+    }
+  }
+
+  async function handleDeleteSavedReport(row: SavedReportRow) {
+    if (admin?.role === 'center') {
+      if (row.scope !== 'center' || row.center_id !== admin.center_id) return
+    }
+    if (!confirm(`"${row.title}"\n이 보고서를 삭제하시겠습니까?`)) return
+    try {
+      const { error } = await supabase.from('reports').delete().eq('id', row.id)
+      if (error) throw error
+      setSavedReports(prev => prev.filter(r => r.id !== row.id))
+    } catch (e: any) {
+      alert(`삭제 실패: ${e?.message ?? e}`)
+    }
+  }
+
   async function handleDeleteGp(plan: GlobalPlanRow) {
     if (admin?.role !== 'super') return
     if (!confirm(`"${plan.title}" 전체 계획서를 삭제하시겠습니까?`)) return
@@ -1520,6 +1595,7 @@ export default function AdminPage() {
         setReportScope('center')
         setReportCenterId(admin.center_id)
       }
+      loadSavedReports()
     }
   }, [tab, admin, loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -3076,7 +3152,86 @@ export default function AdminPage() {
                 : (reportScope === 'center' ? (reportCenterId ?? undefined) : undefined)
             }
             createdBy={admin.name}
+            externalMarkdown={loadedReport?.markdown ?? null}
+            externalMarkdownKey={loadedReport?.key ?? null}
           />
+
+          {/* 저장된 보고서 목록 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                📚 저장된 보고서
+                {!savedReportsLoading && (
+                  <span className="text-xs text-gray-400 font-normal">{savedReports.length}건</span>
+                )}
+              </h2>
+              <button
+                onClick={loadSavedReports}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                title="새로고침"
+              >
+                <RefreshCw size={13} className={savedReportsLoading ? 'animate-spin' : ''} />
+              </button>
+            </div>
+
+            {savedReportsLoading ? (
+              <div className="py-8 flex justify-center">
+                <RefreshCw size={16} className="animate-spin text-gray-300" />
+              </div>
+            ) : savedReports.length === 0 ? (
+              <div className="py-10 text-center">
+                <p className="text-3xl mb-2">📭</p>
+                <p className="text-sm text-gray-500 font-medium">저장된 보고서가 없습니다</p>
+                <p className="text-xs text-gray-400 mt-1">보고서 생성 후 'DB 저장' 버튼을 눌러보세요</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {savedReports.map(r => {
+                  const centerName = r.center_id
+                    ? ORGANIZATIONS.find(o => o.id === r.center_id)?.name
+                    : null
+                  return (
+                    <div key={r.id} className="px-4 py-3">
+                      <div className="mb-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              r.scope === 'global'
+                                ? 'bg-purple-100 text-purple-700'
+                                : 'bg-blue-100 text-blue-700'
+                            }`}
+                          >
+                            {r.scope === 'global' ? '🌐 전체' : '🏢 기관별'}
+                          </span>
+                          {centerName && (
+                            <span className="text-[10px] font-medium text-gray-500">{centerName}</span>
+                          )}
+                        </div>
+                        <p className="text-sm font-bold text-gray-900 mt-1 truncate">{r.title}</p>
+                        <p className="text-[11px] text-gray-400 mt-0.5">
+                          {formatDate(r.created_at)} · {r.created_by}
+                        </p>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => handleLoadSavedReport(r)}
+                          className="flex-1 flex items-center justify-center gap-1 py-2 bg-blue-50 text-blue-700 text-xs font-semibold rounded-lg hover:bg-blue-100 active:scale-95 transition-all"
+                        >
+                          <Download size={11} /> 불러오기
+                        </button>
+                        <button
+                          onClick={() => handleDeleteSavedReport(r)}
+                          className="flex items-center justify-center gap-1 px-3 py-2 bg-red-50 text-red-600 text-xs font-semibold rounded-lg hover:bg-red-100 active:scale-95 transition-all"
+                        >
+                          <Trash2 size={11} /> 삭제
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

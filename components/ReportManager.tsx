@@ -1,5 +1,5 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { RefreshCw, Download, FileText, Save, Eye, Edit2 } from 'lucide-react'
 import { collectCenterReportData, collectGlobalReportData } from '@/lib/reportData'
 import { generateCenterReport, generateGlobalReport } from '@/lib/reportGenerator'
@@ -15,6 +15,10 @@ interface Props {
   scope: Scope
   centerId?: number
   createdBy: string
+  /** 외부에서 주입할 마크다운(저장된 보고서 불러오기 등). 비어있으면 무시. */
+  externalMarkdown?: string | null
+  /** externalMarkdown 변경 감지용 키. 이 값이 바뀌면 외부 마크다운으로 상태가 교체됨. */
+  externalMarkdownKey?: string | number | null
 }
 
 function escapeHtml(s: string): string {
@@ -92,7 +96,13 @@ function renderMarkdown(md: string): string {
   return out.join('\n')
 }
 
-export default function ReportManager({ scope, centerId, createdBy }: Props) {
+export default function ReportManager({
+  scope,
+  centerId,
+  createdBy,
+  externalMarkdown,
+  externalMarkdownKey,
+}: Props) {
   const [status, setStatus] = useState<Status>('idle')
   const [view, setView] = useState<View>('preview')
   const [markdown, setMarkdown] = useState('')
@@ -100,6 +110,18 @@ export default function ReportManager({ scope, centerId, createdBy }: Props) {
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
+
+  // 외부 주입 마크다운 — key 변경 시 내부 상태 교체
+  useEffect(() => {
+    if (typeof externalMarkdown === 'string' && externalMarkdown.length > 0) {
+      setMarkdown(externalMarkdown)
+      setView('preview')
+      setStatus('ready')
+      setError('')
+      setSavedAt(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalMarkdownKey])
 
   async function handleGenerate() {
     setStatus('collecting')
