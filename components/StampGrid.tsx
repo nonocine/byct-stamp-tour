@@ -1,6 +1,7 @@
 'use client'
 import { Star } from 'lucide-react'
 import type { Organization } from '@/lib/types'
+import { useOrgLogos } from '@/components/OrgLogosProvider'
 
 interface Props {
   organizations: Organization[]
@@ -10,12 +11,15 @@ interface Props {
 }
 
 export default function StampGrid({ organizations, stampedOrgIds, reviewedOrgIds, onSelect }: Props) {
+  const { logos } = useOrgLogos()
+
   return (
     <div className="grid grid-cols-3 gap-3">
       {organizations.map(org => {
         const collected = stampedOrgIds.has(org.id)
         const reviewed = reviewedOrgIds?.has(org.id) ?? false
         const clickable = !!onSelect
+        const logoUrl = logos[org.id] ?? org.logo
 
         const Wrapper: any = clickable ? 'button' : 'div'
         const wrapperProps = clickable
@@ -50,11 +54,11 @@ export default function StampGrid({ organizations, stampedOrgIds, reviewedOrgIds
                     <div className="absolute inset-0 rounded-full border-2 border-white/30 z-10 pointer-events-none" />
                     <div className="absolute inset-2 rounded-full border border-white/20 z-10 pointer-events-none" />
 
-                    {org.logo ? (
+                    {logoUrl ? (
                       <div className="flex flex-col items-center z-10">
                         <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center shadow-inner overflow-hidden">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={org.logo} alt={org.name} style={{ width: 40, height: 40, objectFit: 'contain' }} />
+                          <img src={logoUrl} alt={org.name} style={{ width: 40, height: 40, objectFit: 'contain' }} />
                         </div>
                       </div>
                     ) : (
@@ -65,11 +69,11 @@ export default function StampGrid({ organizations, stampedOrgIds, reviewedOrgIds
                   </>
                 ) : (
                   /* 미수집 */
-                  org.logo ? (
+                  logoUrl ? (
                     <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center overflow-hidden">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={org.logo}
+                        src={logoUrl}
                         alt={org.name}
                         style={{ width: 40, height: 40, objectFit: 'contain', filter: 'grayscale(1) opacity(0.3)' }}
                       />
