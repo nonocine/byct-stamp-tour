@@ -292,7 +292,7 @@ export default function ProgramsPage() {
                         rel="noopener noreferrer"
                         className="flex-1 flex items-center justify-center gap-2 py-3 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all"
                       >
-                        프로그램 신청하기
+                        ① 프로그램 신청하기
                         <ExternalLink size={14} />
                       </a>
                     ) : (
@@ -307,14 +307,14 @@ export default function ProgramsPage() {
                       if (status === 'pending') {
                         return (
                           <div className="flex-1 flex items-center justify-center py-3 bg-amber-50 text-amber-700 text-sm font-bold rounded-xl border border-amber-200">
-                            ⏳ 승인 대기중
+                            ② ⏳ 승인 대기중
                           </div>
                         )
                       }
                       if (status === 'waiting') {
                         return (
                           <div className="flex-1 flex items-center justify-center py-3 bg-orange-50 text-orange-700 text-sm font-bold rounded-xl border border-orange-200">
-                            📋 대기열 등록
+                            ② 📋 대기열 등록
                           </div>
                         )
                       }
@@ -322,7 +322,7 @@ export default function ProgramsPage() {
                         const hasStamp = stampedCenters.has(org.id)
                         return (
                           <div className="flex-1 flex flex-col items-center justify-center py-2 bg-green-50 text-green-700 text-sm font-bold rounded-xl border border-green-200 leading-tight">
-                            <span>✅ 승인 완료</span>
+                            <span>② ✅ 승인 완료</span>
                             <span className="text-[10px] font-medium mt-0.5">
                               {hasStamp ? '스탬프 발급됨' : '활동 후 스탬프 발급 예정'}
                             </span>
@@ -337,7 +337,7 @@ export default function ProgramsPage() {
                             disabled={submitting || !profile}
                             className="flex-1 flex flex-col items-center justify-center py-2 bg-red-50 text-red-700 text-sm font-bold rounded-xl border border-red-200 hover:bg-red-100 active:scale-95 transition-all leading-tight disabled:opacity-50"
                           >
-                            <span>❌ 거절됨</span>
+                            <span>② ❌ 거절됨</span>
                             <span className="text-[10px] font-medium mt-0.5 underline">
                               {submitting ? '재신청 중...' : '탭하여 재신청'}
                             </span>
@@ -352,7 +352,7 @@ export default function ProgramsPage() {
                           className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-emerald-500 text-white text-sm font-bold rounded-xl hover:bg-emerald-600 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                           title={!profile ? '로그인이 필요합니다' : ''}
                         >
-                          {submitting ? '저장 중...' : '신청 완료했어요'}
+                          {submitting ? '저장 중...' : '② 신청 완료했어요'}
                           {!submitting && <Check size={14} />}
                         </button>
                       )
