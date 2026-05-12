@@ -1077,33 +1077,10 @@ export default function AdminPage() {
       rejected: '거절',
       waiting: '대기 처리',
     }
-    const extraNote = newStatus === 'approved' ? '\n(스탬프가 자동으로 발급됩니다)' : ''
-    if (!confirm(`"${app.participant_name}" 님의 신청을 ${verbMap[newStatus]} 하시겠습니까?${extraNote}`)) return
+    if (!confirm(`"${app.participant_name}" 님의 신청을 ${verbMap[newStatus]} 하시겠습니까?`)) return
 
     setProcessingAppId(app.id)
     try {
-      // 승인이면 스탬프 먼저 발급 (중복은 건너뜀)
-      if (newStatus === 'approved') {
-        const { data: existing } = await supabase
-          .from('stamp_records')
-          .select('id')
-          .eq('participant_id', app.participant_id)
-          .eq('center_id', app.center_id)
-          .maybeSingle()
-
-        if (!existing) {
-          const { error: stampErr } = await supabase.from('stamp_records').insert({
-            participant_id: app.participant_id,
-            participant_name: app.participant_name,
-            participant_phone: app.participant_phone,
-            center_id: app.center_id,
-            center_name: app.center_name,
-            approved_by: admin.name,
-          })
-          if (stampErr) throw stampErr
-        }
-      }
-
       const { error: updErr } = await supabase
         .from('applications')
         .update({ status: newStatus })
@@ -1112,7 +1089,7 @@ export default function AdminPage() {
 
       // 참가자에게 웹 푸시 발송 (fire-and-forget — 실패해도 UI 흐름 유지)
       const pushMessages: Record<typeof newStatus, string> = {
-        approved: `✅ ${app.center_name} 신청이 승인되었습니다! 스탬프가 발급되었어요`,
+        approved: `✅ ${app.center_name} 신청이 승인되었습니다`,
         rejected: `❌ ${app.center_name} 신청이 거절되었습니다`,
         waiting: `📋 ${app.center_name} 대기열에 등록되었습니다`,
       }
@@ -1144,6 +1121,77 @@ export default function AdminPage() {
         msg.includes('failed to fetch') || msg.includes('network')
           ? '네트워크 오류가 발생했습니다.'
           : '처리에 실패했습니다. 다시 시도해주세요.',
+      )
+    } finally {
+      setProcessingAppId(null)
+    }
+  }
+
+  async function handleIssueStamp(app: ApplicationRow) {
+    if (!admin) return
+    if (admin.role === 'center' && admin.center_id !== app.center_id) return
+
+    if (!confirm(`"${app.participant_name}" 님에게 ${app.center_name} 스탬프를 발급하시겠습니까?`)) return
+
+    setProcessingAppId(app.id)
+    try {
+      // 1) 이미 스탬프가 있는지 확인 (1기관 1스탬프 원칙)
+      const { data: existing } = await supabase
+        .from('stamp_records')
+        .select('id')
+        .eq('participant_id', app.participant_id)
+        .eq('center_id', app.center_id)
+        .maybeSingle()
+
+      // 2) 없으면 발급
+      if (!existing) {
+        const { error: stampErr } = await supabase.from('stamp_records').insert({
+          participant_id: app.participant_id,
+          participant_name: app.participant_name,
+          participant_phone: app.participant_phone,
+          center_id: app.center_id,
+          center_name: app.center_name,
+          approved_by: admin.name,
+        })
+        if (stampErr) throw stampErr
+      }
+
+      // 3) 신청 상태도 approved 로 정리
+      const { error: updErr } = await supabase
+        .from('applications')
+        .update({ status: 'approved' })
+        .eq('id', app.id)
+      if (updErr) throw updErr
+
+      // 4) 참가자에게 푸시
+      fetch('/api/send-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          participantId: app.participant_id,
+          title: 'B.Y.C.T 스탬프투어',
+          body: `🎉 ${app.center_name}에서 스탬프가 발급되었어요!`,
+          tag: `stamp-${app.id}`,
+          url: '/stamps',
+        }),
+      }).catch((err) => console.warn('[push] 발송 실패:', err))
+
+      // 5) 로컬 리스트 갱신
+      if (appStatusFilter === 'all' || appStatusFilter === 'approved') {
+        setApplications(prev =>
+          prev.map(a => (a.id === app.id ? { ...a, status: 'approved' } : a)),
+        )
+      } else {
+        setApplications(prev => prev.filter(a => a.id !== app.id))
+      }
+
+      loadPendingCount()
+    } catch (e: any) {
+      const msg = (e?.message ?? '').toLowerCase()
+      alert(
+        msg.includes('failed to fetch') || msg.includes('network')
+          ? '네트워크 오류가 발생했습니다.'
+          : '스탬프 발급에 실패했습니다. 다시 시도해주세요.',
       )
     } finally {
       setProcessingAppId(null)
@@ -1993,9 +2041,9 @@ export default function AdminPage() {
                         </button>
                       </div>
 
-                      {/* 수동 스탬프 발급 (기존 유지) */}
+                      {/* 수동 스탬프 발급 */}
                       <button
-                        onClick={() => handleSetApplicationStatus(app, 'approved')}
+                        onClick={() => handleIssueStamp(app)}
                         disabled={processing}
                         className="w-full mt-1.5 flex items-center justify-center gap-1.5 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50"
                       >
