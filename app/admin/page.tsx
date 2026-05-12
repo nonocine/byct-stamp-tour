@@ -89,6 +89,9 @@ interface ReviewSummary {
   avg: number
 }
 
+type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'waiting'
+type AppStatusFilter = 'all' | ApplicationStatus
+
 interface ApplicationRow {
   id: string
   participant_id: string
@@ -96,7 +99,7 @@ interface ApplicationRow {
   participant_phone: string
   center_id: number
   center_name: string
-  status: 'pending' | 'approved'
+  status: ApplicationStatus
   applied_at: string
 }
 
@@ -206,6 +209,7 @@ export default function AdminPage() {
   const [applicationCenterId, setApplicationCenterId] = useState<number | null>(null)
   const [pendingCount, setPendingCount] = useState(0)
   const [processingAppId, setProcessingAppId] = useState<string | null>(null)
+  const [appStatusFilter, setAppStatusFilter] = useState<AppStatusFilter>('pending')
 
   // ── 프로그램 관리 ────────────────────────────────────────────────────────
   const [programs, setPrograms] = useState<Program[]>([])
@@ -1018,7 +1022,7 @@ export default function AdminPage() {
 
   // ── 신청 대기 ────────────────────────────────────────────────────────────
 
-  const loadApplications = useCallback(async (centerId: number | null) => {
+  const loadApplications = useCallback(async (centerId: number | null, statusFilter: AppStatusFilter = 'pending') => {
     if (!admin) return
     setApplicationsLoading(true)
     try {
@@ -1032,8 +1036,8 @@ export default function AdminPage() {
       let q = supabase
         .from('applications')
         .select('id, participant_id, participant_name, participant_phone, center_id, center_name, status, applied_at')
-        .eq('status', 'pending')
         .order('applied_at', { ascending: true })
+      if (statusFilter !== 'all') q = q.eq('status', statusFilter)
       if (effectiveCenterId !== null) q = q.eq('center_id', effectiveCenterId)
 
       const { data } = await q
@@ -1061,68 +1065,67 @@ export default function AdminPage() {
     }
   }, [admin])
 
-  async function handleApproveApplication(app: ApplicationRow) {
+  async function handleSetApplicationStatus(
+    app: ApplicationRow,
+    newStatus: 'approved' | 'rejected' | 'waiting',
+  ) {
     if (!admin) return
     if (admin.role === 'center' && admin.center_id !== app.center_id) return
+
+    const verbMap: Record<typeof newStatus, string> = {
+      approved: '승인',
+      rejected: '거절',
+      waiting: '대기 처리',
+    }
+    const extraNote = newStatus === 'approved' ? '\n(스탬프가 자동으로 발급됩니다)' : ''
+    if (!confirm(`"${app.participant_name}" 님의 신청을 ${verbMap[newStatus]} 하시겠습니까?${extraNote}`)) return
+
     setProcessingAppId(app.id)
     try {
-      // 1. 이미 스탬프가 있는지 확인
-      const { data: existing } = await supabase
-        .from('stamp_records')
-        .select('id')
-        .eq('participant_id', app.participant_id)
-        .eq('center_id', app.center_id)
-        .maybeSingle()
+      // 승인이면 스탬프 먼저 발급 (중복은 건너뜀)
+      if (newStatus === 'approved') {
+        const { data: existing } = await supabase
+          .from('stamp_records')
+          .select('id')
+          .eq('participant_id', app.participant_id)
+          .eq('center_id', app.center_id)
+          .maybeSingle()
 
-      // 2. 없으면 스탬프 발급
-      if (!existing) {
-        const { error: stampErr } = await supabase.from('stamp_records').insert({
-          participant_id: app.participant_id,
-          participant_name: app.participant_name,
-          participant_phone: app.participant_phone,
-          center_id: app.center_id,
-          center_name: app.center_name,
-          approved_by: admin.name,
-        })
-        if (stampErr) throw stampErr
+        if (!existing) {
+          const { error: stampErr } = await supabase.from('stamp_records').insert({
+            participant_id: app.participant_id,
+            participant_name: app.participant_name,
+            participant_phone: app.participant_phone,
+            center_id: app.center_id,
+            center_name: app.center_name,
+            approved_by: admin.name,
+          })
+          if (stampErr) throw stampErr
+        }
       }
 
-      // 3. 신청 상태를 approved로 변경
       const { error: updErr } = await supabase
         .from('applications')
-        .update({ status: 'approved' })
+        .update({ status: newStatus })
         .eq('id', app.id)
       if (updErr) throw updErr
 
-      setApplications(prev => prev.filter(a => a.id !== app.id))
-      setPendingCount(c => Math.max(0, c - 1))
-    } catch (e: any) {
-      const msg = (e?.message ?? '').toLowerCase()
-      alert(
-        msg.includes('failed to fetch') || msg.includes('network')
-          ? '네트워크 오류가 발생했습니다.'
-          : '스탬프 발급에 실패했습니다. 다시 시도해주세요.',
-      )
-    } finally {
-      setProcessingAppId(null)
-    }
-  }
+      // 현재 필터에 따라 로컬 리스트 갱신
+      if (appStatusFilter === 'all' || appStatusFilter === newStatus) {
+        setApplications(prev =>
+          prev.map(a => (a.id === app.id ? { ...a, status: newStatus } : a)),
+        )
+      } else {
+        setApplications(prev => prev.filter(a => a.id !== app.id))
+      }
 
-  async function handleRejectApplication(app: ApplicationRow) {
-    if (admin?.role !== 'super' && (admin?.role !== 'center' || admin.center_id !== app.center_id)) return
-    if (!confirm(`"${app.participant_name}" 님의 신청을 삭제할까요?`)) return
-    setProcessingAppId(app.id)
-    try {
-      const { error } = await supabase.from('applications').delete().eq('id', app.id)
-      if (error) throw error
-      setApplications(prev => prev.filter(a => a.id !== app.id))
-      setPendingCount(c => Math.max(0, c - 1))
+      loadPendingCount()
     } catch (e: any) {
       const msg = (e?.message ?? '').toLowerCase()
       alert(
         msg.includes('failed to fetch') || msg.includes('network')
           ? '네트워크 오류가 발생했습니다.'
-          : '삭제에 실패했습니다. 다시 시도해주세요.',
+          : '처리에 실패했습니다. 다시 시도해주세요.',
       )
     } finally {
       setProcessingAppId(null)
@@ -1145,7 +1148,7 @@ export default function AdminPage() {
     if (tab === 'applications') {
       const initial = admin.role === 'center' ? (admin.center_id ?? null) : applicationCenterId
       setApplicationCenterId(initial)
-      loadApplications(initial)
+      loadApplications(initial, appStatusFilter)
       loadPendingCount()
     }
     if (tab === 'programs') loadPrograms()
@@ -1164,8 +1167,8 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (loading || !admin || tab !== 'applications') return
-    loadApplications(applicationCenterId)
-  }, [applicationCenterId]) // eslint-disable-line react-hooks/exhaustive-deps
+    loadApplications(applicationCenterId, appStatusFilter)
+  }, [applicationCenterId, appStatusFilter]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (loading || !admin || tab !== 'dashboard') return
@@ -1825,9 +1828,37 @@ export default function AdminPage() {
               <p className="text-xs text-blue-700">
                 <span className="font-semibold">{admin.center_name ?? '본인 기관'}</span>에 신청한 참가자만 표시됩니다.
               </p>
-              <p className="text-xs text-blue-600 mt-0.5">"스탬프 찍기"를 누르면 즉시 발급되고 승인완료로 변경됩니다.</p>
+              <p className="text-xs text-blue-600 mt-0.5">
+                "승인" 또는 "스탬프 찍기"를 누르면 스탬프가 자동 발급됩니다.
+              </p>
             </div>
           )}
+
+          {/* 상태 필터 pills */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-1.5">
+            <div className="flex gap-1 overflow-x-auto">
+              {([
+                { v: 'all', l: '전체' },
+                { v: 'pending', l: '대기중' },
+                { v: 'waiting', l: '대기열' },
+                { v: 'approved', l: '승인됨' },
+                { v: 'rejected', l: '거절됨' },
+              ] as { v: AppStatusFilter; l: string }[]).map(opt => {
+                const active = appStatusFilter === opt.v
+                return (
+                  <button
+                    key={opt.v}
+                    onClick={() => setAppStatusFilter(opt.v)}
+                    className={`flex-1 min-w-fit px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                      active ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'
+                    }`}
+                  >
+                    {opt.l}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
 
           {admin.role === 'super' && (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3">
@@ -1851,13 +1882,17 @@ export default function AdminPage() {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                ⏳ 신청 대기 목록
+                {appStatusFilter === 'all' ? '📋'
+                  : appStatusFilter === 'pending' ? '⏳'
+                  : appStatusFilter === 'waiting' ? '⏰'
+                  : appStatusFilter === 'approved' ? '✅'
+                  : '❌'} 신청 목록
                 {!applicationsLoading && (
-                  <span className="text-xs text-gray-400 font-normal">{applications.length}명</span>
+                  <span className="text-xs text-gray-400 font-normal">{applications.length}건</span>
                 )}
               </h2>
               <button
-                onClick={() => { loadApplications(applicationCenterId); loadPendingCount() }}
+                onClick={() => { loadApplications(applicationCenterId, appStatusFilter); loadPendingCount() }}
                 className="text-gray-400 hover:text-gray-600 transition-colors"
               >
                 <RefreshCw size={13} className={applicationsLoading ? 'animate-spin' : ''} />
@@ -1871,7 +1906,13 @@ export default function AdminPage() {
             ) : applications.length === 0 ? (
               <div className="py-12 text-center">
                 <p className="text-3xl mb-2">📭</p>
-                <p className="text-sm text-gray-500 font-medium">대기 중인 신청이 없습니다</p>
+                <p className="text-sm text-gray-500 font-medium">
+                  {appStatusFilter === 'all' && '신청 기록이 없습니다'}
+                  {appStatusFilter === 'pending' && '대기 중인 신청이 없습니다'}
+                  {appStatusFilter === 'waiting' && '대기열에 있는 신청이 없습니다'}
+                  {appStatusFilter === 'approved' && '승인된 신청이 없습니다'}
+                  {appStatusFilter === 'rejected' && '거절된 신청이 없습니다'}
+                </p>
               </div>
             ) : (
               <div className="divide-y divide-gray-50">
@@ -1883,7 +1924,22 @@ export default function AdminPage() {
                       <div className="flex items-start gap-2.5">
                         {org && <OrgIcon org={org} size={32} rounded="rounded-lg" />}
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs text-gray-500 font-medium truncate">{app.center_name}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="text-xs text-gray-500 font-medium truncate">{app.center_name}</p>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              app.status === 'pending'  ? 'bg-amber-100 text-amber-700' :
+                              app.status === 'waiting'  ? 'bg-blue-100 text-blue-700' :
+                              app.status === 'approved' ? 'bg-green-100 text-green-700' :
+                              app.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>
+                              {app.status === 'pending'  ? '대기중'
+                                : app.status === 'waiting'  ? '대기열'
+                                : app.status === 'approved' ? '승인됨'
+                                : app.status === 'rejected' ? '거절됨'
+                                : app.status}
+                            </span>
+                          </div>
                           <p className="text-sm font-bold text-gray-900 mt-0.5">{app.participant_name}</p>
                           <p className="text-xs text-gray-500 mt-0.5">
                             {formatPhone(app.participant_phone)}
@@ -1893,30 +1949,48 @@ export default function AdminPage() {
                           </p>
                         </div>
                       </div>
-                      <div className="flex gap-2 mt-3">
+
+                      {/* 상태 변경 버튼 3개 */}
+                      <div className="grid grid-cols-3 gap-1.5 mt-3">
                         <button
-                          onClick={() => handleRejectApplication(app)}
+                          onClick={() => handleSetApplicationStatus(app, 'approved')}
                           disabled={processing}
-                          className="px-3 py-2.5 text-xs font-semibold bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50"
+                          className="py-2.5 bg-green-600 text-white text-xs font-bold rounded-xl hover:bg-green-700 active:scale-95 transition-all disabled:opacity-50"
                         >
-                          삭제
+                          승인
                         </button>
                         <button
-                          onClick={() => handleApproveApplication(app)}
+                          onClick={() => handleSetApplicationStatus(app, 'rejected')}
                           disabled={processing}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50"
+                          className="py-2.5 bg-red-600 text-white text-xs font-bold rounded-xl hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
                         >
-                          {processing ? (
-                            <>
-                              <RefreshCw size={14} className="animate-spin" /> 발급 중...
-                            </>
-                          ) : (
-                            <>
-                              <Stamp size={14} /> 스탬프 찍기
-                            </>
-                          )}
+                          거절
+                        </button>
+                        <button
+                          onClick={() => handleSetApplicationStatus(app, 'waiting')}
+                          disabled={processing}
+                          className="py-2.5 bg-yellow-500 text-white text-xs font-bold rounded-xl hover:bg-yellow-600 active:scale-95 transition-all disabled:opacity-50"
+                        >
+                          대기
                         </button>
                       </div>
+
+                      {/* 수동 스탬프 발급 (기존 유지) */}
+                      <button
+                        onClick={() => handleSetApplicationStatus(app, 'approved')}
+                        disabled={processing}
+                        className="w-full mt-1.5 flex items-center justify-center gap-1.5 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50"
+                      >
+                        {processing ? (
+                          <>
+                            <RefreshCw size={14} className="animate-spin" /> 처리 중...
+                          </>
+                        ) : (
+                          <>
+                            <Stamp size={14} /> 스탬프 찍기
+                          </>
+                        )}
+                      </button>
                     </div>
                   )
                 })}
