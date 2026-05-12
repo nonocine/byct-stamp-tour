@@ -15,9 +15,10 @@ import { fetchAllPrograms } from '@/lib/programs'
 import type { Program } from '@/lib/types'
 import OrgIcon from '@/components/OrgIcon'
 import ProgramEditModal from '@/components/ProgramEditModal'
+import ReportManager from '@/components/ReportManager'
 import { useOrgLogos } from '@/components/OrgLogosProvider'
 
-type Tab = 'dashboard' | 'stamp' | 'participants' | 'admins' | 'links' | 'reviews' | 'applications' | 'programs'
+type Tab = 'dashboard' | 'stamp' | 'participants' | 'admins' | 'links' | 'reviews' | 'applications' | 'programs' | 'reports'
 
 const PAGE_SIZE = 20
 
@@ -334,6 +335,111 @@ export default function AdminPage() {
       alert(`PDF 삭제 실패: ${err?.message ?? err}`)
     } finally {
       setUploadingPdfProgramId(null)
+    }
+  }
+
+  // ── 보고서 / 전체 계획서 ────────────────────────────────────────────────
+  const [reportScope, setReportScope] = useState<'center' | 'global'>('global')
+  const [reportCenterId, setReportCenterId] = useState<number | null>(null)
+
+  interface GlobalPlanRow {
+    id: string
+    title: string
+    pdf_url: string
+    uploaded_by: string
+    created_at: string
+  }
+  const [globalPlans, setGlobalPlans] = useState<GlobalPlanRow[]>([])
+  const [globalPlansLoading, setGlobalPlansLoading] = useState(false)
+  const [gpTitle, setGpTitle] = useState('')
+  const [gpUploading, setGpUploading] = useState(false)
+  const gpInputRef = useRef<HTMLInputElement>(null)
+
+  async function loadGlobalPlans() {
+    setGlobalPlansLoading(true)
+    try {
+      const { data } = await supabase
+        .from('global_plans')
+        .select('id, title, pdf_url, uploaded_by, created_at')
+        .order('created_at', { ascending: false })
+      setGlobalPlans((data ?? []) as GlobalPlanRow[])
+    } finally {
+      setGlobalPlansLoading(false)
+    }
+  }
+
+  function triggerGpUpload() {
+    if (admin?.role !== 'super') return
+    if (!gpTitle.trim()) {
+      alert('계획서 제목을 먼저 입력해주세요.')
+      return
+    }
+    if (gpInputRef.current) gpInputRef.current.value = ''
+    gpInputRef.current?.click()
+  }
+
+  async function handleGpFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || admin?.role !== 'super') return
+
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+    if (!isPdf) {
+      alert('PDF만 업로드 가능합니다.')
+      return
+    }
+    const MAX_SIZE = 20 * 1024 * 1024
+    if (file.size > MAX_SIZE) {
+      alert(`파일 크기가 너무 큽니다. (${(file.size / 1024 / 1024).toFixed(1)}MB)\n20MB 이하의 PDF만 업로드 가능합니다.`)
+      return
+    }
+    const title = gpTitle.trim()
+    if (!title) {
+      alert('계획서 제목을 입력해주세요.')
+      return
+    }
+
+    setGpUploading(true)
+    try {
+      const path = `global/${Date.now()}.pdf`
+      const { error: upErr } = await supabase.storage
+        .from('program-plans')
+        .upload(path, file, { contentType: 'application/pdf', cacheControl: '3600', upsert: false })
+      if (upErr) throw upErr
+
+      const { data: pub } = supabase.storage.from('program-plans').getPublicUrl(path)
+      const { error: dbErr } = await supabase.from('global_plans').insert({
+        title,
+        pdf_url: pub.publicUrl,
+        uploaded_by: admin.name,
+      })
+      if (dbErr) throw dbErr
+
+      setGpTitle('')
+      loadGlobalPlans()
+    } catch (err: any) {
+      alert(`전체 계획서 업로드 실패: ${err?.message ?? err}`)
+    } finally {
+      setGpUploading(false)
+    }
+  }
+
+  async function handleDeleteGp(plan: GlobalPlanRow) {
+    if (admin?.role !== 'super') return
+    if (!confirm(`"${plan.title}" 전체 계획서를 삭제하시겠습니까?`)) return
+    try {
+      const marker = '/program-plans/'
+      const idx = plan.pdf_url.indexOf(marker)
+      if (idx >= 0) {
+        const p = plan.pdf_url.slice(idx + marker.length)
+        const { error: rmErr } = await supabase.storage.from('program-plans').remove([p])
+        if (rmErr) console.warn('[전체 계획서] Storage 제거 실패:', rmErr.message)
+      }
+      const { error: delErr } = await supabase.from('global_plans').delete().eq('id', plan.id)
+      if (delErr) throw delErr
+      loadGlobalPlans()
+    } catch (err: any) {
+      alert(`삭제 실패: ${err?.message ?? err}`)
     }
   }
 
@@ -1406,6 +1512,15 @@ export default function AdminPage() {
       loadPendingCount()
     }
     if (tab === 'programs') loadPrograms()
+    if (tab === 'reports') {
+      // 슈퍼관리자는 글로벌 플랜 섹션 사용 → 자동 로드
+      if (admin.role === 'super') loadGlobalPlans()
+      // 센터관리자는 본인 기관으로 강제
+      if (admin.role === 'center' && admin.center_id) {
+        setReportScope('center')
+        setReportCenterId(admin.center_id)
+      }
+    }
   }, [tab, admin, loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 인증 직후 대기 인원 카운트 로드 (탭 배지용)
@@ -1463,6 +1578,7 @@ export default function AdminPage() {
     { key: 'reviews', label: '평가 모아보기' },
     { key: 'links', label: '기관 링크' },
     { key: 'programs', label: '프로그램 관리' },
+    { key: 'reports', label: '보고서' },
     ...(admin.role === 'super' ? [{ key: 'admins' as Tab, label: '관리자 관리' }] : []),
   ]
 
@@ -2804,6 +2920,163 @@ export default function AdminPage() {
           <p className="text-xs text-gray-400 text-center px-2">
             수정한 내용은 참가자 화면의 프로그램 목록에 즉시 반영됩니다.
           </p>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          보고서 탭
+      ══════════════════════════════════════════════════════════════════ */}
+      {tab === 'reports' && (
+        <div className="px-4 space-y-4">
+          {/* 전체 계획서 업로드용 숨김 input */}
+          <input
+            ref={gpInputRef}
+            type="file"
+            accept=".pdf,application/pdf"
+            className="hidden"
+            onChange={handleGpFileSelected}
+          />
+
+          {admin.role === 'super' && (
+            <>
+              {/* 보고서 범위 선택 */}
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3">
+                <label className="block text-xs font-semibold text-gray-600 mb-2 px-1">보고서 종류</label>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => { setReportScope('global'); setReportCenterId(null) }}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                      reportScope === 'global'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    📊 전체 통합 보고서
+                  </button>
+                  <button
+                    onClick={() => setReportScope('center')}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                      reportScope === 'center'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    🏢 기관별 보고서
+                  </button>
+                </div>
+              </div>
+
+              {reportScope === 'center' && (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3">
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5 px-1">기관 선택</label>
+                  <select
+                    value={reportCenterId ?? ''}
+                    onChange={e => setReportCenterId(e.target.value === '' ? null : Number(e.target.value))}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">— 기관을 선택해주세요 —</option>
+                    {ORGANIZATIONS.map(org => (
+                      <option key={org.id} value={org.id}>{org.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* 전체 계획서 PDF 관리 */}
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100">
+                  <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                    📎 전체 계획서 PDF (슈퍼관리자 전용)
+                  </h2>
+                  <p className="text-xs text-gray-500 mt-1">
+                    사업 전체 계획서를 등록하면 통합 보고서 상단에 자동 첨부됩니다.
+                  </p>
+                </div>
+
+                <div className="px-5 py-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      value={gpTitle}
+                      onChange={e => setGpTitle(e.target.value)}
+                      placeholder="계획서 제목 (예: 2026년 BYCT 운영 계획서)"
+                      className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={triggerGpUpload}
+                      disabled={gpUploading || !gpTitle.trim()}
+                      className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {gpUploading ? (
+                        <><RefreshCw size={12} className="animate-spin" /> 업로드 중...</>
+                      ) : (
+                        <><Upload size={12} /> PDF 선택 후 업로드</>
+                      )}
+                    </button>
+                  </div>
+
+                  {globalPlansLoading ? (
+                    <div className="py-6 flex justify-center">
+                      <RefreshCw size={16} className="animate-spin text-gray-300" />
+                    </div>
+                  ) : globalPlans.length === 0 ? (
+                    <p className="text-xs text-gray-400 text-center py-4">등록된 전체 계획서가 없습니다</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {globalPlans.map(plan => (
+                        <div key={plan.id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2.5">
+                          <FileText size={14} className="text-gray-400 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-gray-900 truncate">{plan.title}</p>
+                            <p className="text-[10px] text-gray-400 mt-0.5">
+                              {formatDate(plan.created_at)} · {plan.uploaded_by}
+                            </p>
+                          </div>
+                          <a
+                            href={plan.pdf_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 text-blue-700 text-[11px] font-semibold rounded-lg hover:bg-blue-100 transition-colors flex-shrink-0"
+                          >
+                            <ExternalLink size={10} /> 보기
+                          </a>
+                          <button
+                            onClick={() => handleDeleteGp(plan)}
+                            className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                            title="삭제"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {admin.role === 'center' && (
+            <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3">
+              <p className="text-xs text-blue-700">
+                <span className="font-semibold">{admin.center_name ?? '본인 기관'}</span>의 보고서를 자동 생성합니다.
+              </p>
+              <p className="text-xs text-blue-600 mt-0.5">
+                Word(.docx) 다운로드, PDF 인쇄, DB 저장이 가능합니다.
+              </p>
+            </div>
+          )}
+
+          {/* ReportManager 본체 */}
+          <ReportManager
+            scope={admin.role === 'center' ? 'center' : reportScope}
+            centerId={
+              admin.role === 'center'
+                ? (admin.center_id ?? undefined)
+                : (reportScope === 'center' ? (reportCenterId ?? undefined) : undefined)
+            }
+            createdBy={admin.name}
+          />
         </div>
       )}
 
