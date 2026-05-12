@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS } from '@/lib/data'
 import OrgIcon from '@/components/OrgIcon'
 import { useAuth } from '@/components/AuthProvider'
+import PushNotificationButton from '@/components/PushNotificationButton'
 
 export default function HomePage() {
   const { profile, loading } = useAuth()
@@ -152,6 +153,11 @@ export default function HomePage() {
               <Stamp size={15} />
               내 스탬프 보기
             </Link>
+
+            {/* 알림 구독 */}
+            <div className="mt-3">
+              <PushNotificationButton />
+            </div>
           </div>
         ) : (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">

@@ -1110,6 +1110,24 @@ export default function AdminPage() {
         .eq('id', app.id)
       if (updErr) throw updErr
 
+      // 참가자에게 웹 푸시 발송 (fire-and-forget — 실패해도 UI 흐름 유지)
+      const pushMessages: Record<typeof newStatus, string> = {
+        approved: `✅ ${app.center_name} 신청이 승인되었습니다! 스탬프가 발급되었어요`,
+        rejected: `❌ ${app.center_name} 신청이 거절되었습니다`,
+        waiting: `📋 ${app.center_name} 대기열에 등록되었습니다`,
+      }
+      fetch('/api/send-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          participantId: app.participant_id,
+          title: 'B.Y.C.T 스탬프투어',
+          body: pushMessages[newStatus],
+          tag: `app-${app.id}-${newStatus}`,
+          url: '/programs',
+        }),
+      }).catch((err) => console.warn('[push] 발송 실패:', err))
+
       // 현재 필터에 따라 로컬 리스트 갱신
       if (appStatusFilter === 'all' || appStatusFilter === newStatus) {
         setApplications(prev =>
