@@ -164,6 +164,9 @@ export default function AdminPage() {
     name: string
     phone: string
     birthdate: string
+    participantId: string
+    centerId: number
+    centerName: string
   } | null>(null)
   const [cancelProcessing, setCancelProcessing] = useState(false)
   const [cancelDoneMsg, setCancelDoneMsg] = useState(false)
@@ -620,12 +623,26 @@ export default function AdminPage() {
     }
   }
 
-  async function handleDeleteStamp(stampId: string) {
+  async function handleDeleteStamp(sr: StampRecordRow, participantId: string) {
     if (admin?.role !== 'super') return
-    if (!confirm('이 스탬프 기록을 삭제할까요?')) return
-    const { error } = await supabase.from('stamp_records').delete().eq('id', stampId)
+    if (!confirm(`이 스탬프 기록을 삭제할까요?\n(${sr.center_name})`)) return
+    const { error } = await supabase.from('stamp_records').delete().eq('id', sr.id)
     if (error) { alert('삭제 실패: ' + error.message); return }
-    setPStamps(prev => prev.filter(s => s.id !== stampId))
+
+    // 참가자에게 푸시 발송 (fire-and-forget)
+    fetch('/api/send-push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        participantId,
+        title: 'B.Y.C.T 스탬프투어',
+        body: `⚠️ ${sr.center_name} 스탬프가 취소되었습니다`,
+        tag: `stamp-cancel-${sr.id}`,
+        url: '/stamps',
+      }),
+    }).catch((err) => console.warn('[push] 발송 실패:', err))
+
+    setPStamps(prev => prev.filter(s => s.id !== sr.id))
     loadParticipants(pPage, pSearch, pCenterId)
   }
 
@@ -823,13 +840,32 @@ export default function AdminPage() {
   }
 
   async function handleCancelStamp() {
-    if (!existingStampId || !foundProfile) return
+    if (!existingStampId || !foundProfile || !admin) return
+    const orgId = admin.role === 'center' ? admin.center_id : selectedOrgId
+    if (!orgId) return
+    if (admin.role === 'center' && admin.center_id !== orgId) return
+
     if (!confirm('이 스탬프를 취소하시겠습니까?\n참가자에게 발급된 스탬프 기록이 삭제됩니다.')) return
     setCancelling(true)
     setSearchError('')
     try {
       const { error } = await supabase.from('stamp_records').delete().eq('id', existingStampId)
       if (error) throw error
+
+      // 참가자에게 푸시 발송 (fire-and-forget)
+      const orgName = ORGANIZATIONS.find(o => o.id === orgId)?.name ?? '기관'
+      fetch('/api/send-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          participantId: foundProfile.id,
+          title: 'B.Y.C.T 스탬프투어',
+          body: `⚠️ ${orgName} 스탬프가 취소되었습니다`,
+          tag: `stamp-cancel-${existingStampId}`,
+          url: '/stamps',
+        }),
+      }).catch((err) => console.warn('[push] 발송 실패:', err))
+
       setAlreadyStamped(false)
       setExistingStampId(null)
       setExistingStampDate(null)
@@ -872,12 +908,16 @@ export default function AdminPage() {
       if (sErr) throw sErr
       if (!stamp) { setCancelSearchError('해당 기관에서 발급된 스탬프가 없습니다'); return }
 
+      const orgName = ORGANIZATIONS.find(o => o.id === orgId)?.name ?? ''
       setCancelTarget({
         stampId: stamp.id,
         stampedAt: stamp.stamped_at,
         name: profile.name,
         phone: profile.phone,
         birthdate: profile.birthdate ?? '',
+        participantId: profile.id,
+        centerId: orgId,
+        centerName: orgName,
       })
     } catch (e: any) {
       setCancelSearchError(e.message ?? '오류가 발생했습니다')
@@ -887,12 +927,28 @@ export default function AdminPage() {
   }
 
   async function handleCancelTargetExecute() {
-    if (!cancelTarget) return
+    if (!cancelTarget || !admin) return
+    if (admin.role === 'center' && admin.center_id !== cancelTarget.centerId) return
+
     if (!confirm(`"${cancelTarget.name}" 참가자의 스탬프를 취소하시겠습니까?\n발급된 스탬프 기록이 삭제됩니다.`)) return
     setCancelProcessing(true)
     try {
       const { error } = await supabase.from('stamp_records').delete().eq('id', cancelTarget.stampId)
       if (error) throw error
+
+      // 참가자에게 푸시 발송 (fire-and-forget)
+      fetch('/api/send-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          participantId: cancelTarget.participantId,
+          title: 'B.Y.C.T 스탬프투어',
+          body: `⚠️ ${cancelTarget.centerName} 스탬프가 취소되었습니다`,
+          tag: `stamp-cancel-${cancelTarget.stampId}`,
+          url: '/stamps',
+        }),
+      }).catch((err) => console.warn('[push] 발송 실패:', err))
+
       setCancelTarget(null)
       setCancelSearchPhone('')
       setCancelDoneMsg(true)
@@ -1850,7 +1906,7 @@ export default function AdminPage() {
                                   </div>
                                   {admin.role === 'super' && (
                                     <button
-                                      onClick={() => handleDeleteStamp(sr.id)}
+                                      onClick={() => handleDeleteStamp(sr, p.id)}
                                       className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
                                       title="스탬프 삭제"
                                     >
