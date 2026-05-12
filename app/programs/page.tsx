@@ -39,6 +39,7 @@ export default function ProgramsPage() {
   const [expanded, setExpanded] = useState<number | null>(null)
   const [centerUrls, setCenterUrls] = useState<Record<number, string>>({})
   const [appStatusByCenter, setAppStatusByCenter] = useState<Record<number, AppStatus>>({})
+  const [stampedCenters, setStampedCenters] = useState<Set<number>>(new Set())
   const [submittingOrgId, setSubmittingOrgId] = useState<number | null>(null)
   const [programs, setPrograms] = useState<Program[]>([])
 
@@ -55,8 +56,13 @@ export default function ProgramsPage() {
   }
 
   useEffect(() => {
-    if (profile) loadApplications()
-    else setAppStatusByCenter({})
+    if (profile) {
+      loadApplications()
+      loadStamps()
+    } else {
+      setAppStatusByCenter({})
+      setStampedCenters(new Set())
+    }
   }, [profile])
 
   async function loadCenterUrls() {
@@ -80,6 +86,21 @@ export default function ProgramsPage() {
       if (r.center_id != null && r.status) map[r.center_id] = r.status as AppStatus
     })
     setAppStatusByCenter(map)
+  }
+
+  async function loadStamps() {
+    if (!profile) return
+    const { data } = await supabase
+      .from('stamp_records')
+      .select('center_id')
+      .eq('participant_id', profile.id)
+    setStampedCenters(
+      new Set(
+        (data ?? [])
+          .map((r: any) => r.center_id)
+          .filter((id: any): id is number => typeof id === 'number'),
+      ),
+    )
   }
 
   async function handleApplyComplete(orgId: number) {
@@ -298,10 +319,13 @@ export default function ProgramsPage() {
                         )
                       }
                       if (status === 'approved') {
+                        const hasStamp = stampedCenters.has(org.id)
                         return (
                           <div className="flex-1 flex flex-col items-center justify-center py-2 bg-green-50 text-green-700 text-sm font-bold rounded-xl border border-green-200 leading-tight">
                             <span>✅ 승인 완료</span>
-                            <span className="text-[10px] font-medium mt-0.5">스탬프 발급됨</span>
+                            <span className="text-[10px] font-medium mt-0.5">
+                              {hasStamp ? '스탬프 발급됨' : '활동 후 스탬프 발급 예정'}
+                            </span>
                           </div>
                         )
                       }
