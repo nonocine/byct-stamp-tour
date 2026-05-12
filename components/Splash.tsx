@@ -5,6 +5,7 @@ export default function Splash() {
   const [mounted, setMounted] = useState(true)
 
   useEffect(() => {
+    document.body.style.visibility = 'visible'
     const t = setTimeout(() => setMounted(false), 2500)
     return () => clearTimeout(t)
   }, [])

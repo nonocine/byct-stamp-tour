@@ -38,7 +38,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko">
-      <body className="min-h-screen bg-gray-50">
+      <body className="min-h-screen bg-gray-50" style={{ visibility: 'hidden' }}>
         <Splash />
         <AuthProvider>
           <Navigation />
