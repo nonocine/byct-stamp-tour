@@ -800,12 +800,11 @@ export default function AdminPage() {
         }
       }
 
-      const from = p * PARTICIPANTS_PAGE_SIZE
+      // 클라이언트 측 페이지네이션 — 매칭되는 모든 참가자를 한 번에 fetch
       let query = supabase
         .from('profiles')
         .select('id, name, phone, birthdate, created_at', { count: 'exact' })
         .order('created_at', { ascending: false })
-        .range(from, from + PARTICIPANTS_PAGE_SIZE - 1)
 
       if (filterIds) query = query.in('id', filterIds)
 
@@ -1640,9 +1639,7 @@ export default function AdminPage() {
     if (tab === 'dashboard') loadDashParticipants(dashPage)
   }, [dashPage]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (tab === 'participants') loadParticipants(pPage, pSearch, pCenterId)
-  }, [pPage]) // eslint-disable-line react-hooks/exhaustive-deps
+  // (참가자 탭은 클라이언트 측 페이지네이션이라 pPage 변경 시 재fetch 불필요)
 
   useEffect(() => {
     if (loading || !admin || tab !== 'participants') return
@@ -2177,7 +2174,9 @@ export default function AdminPage() {
               </div>
             ) : (
               <div className="divide-y divide-gray-100">
-                {pList.map(p => (
+                {pList
+                  .slice(pPage * PARTICIPANTS_PAGE_SIZE, (pPage + 1) * PARTICIPANTS_PAGE_SIZE)
+                  .map(p => (
                   <div key={p.id} className="px-5 py-3.5">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex-1 min-w-0">
