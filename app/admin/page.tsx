@@ -629,6 +629,14 @@ export default function AdminPage() {
     const { error } = await supabase.from('stamp_records').delete().eq('id', sr.id)
     if (error) { alert('삭제 실패: ' + error.message); return }
 
+    // 신청 기록도 같이 삭제 — 참가자가 처음 상태로 돌아가 재신청 가능
+    const { error: appErr } = await supabase
+      .from('applications')
+      .delete()
+      .eq('participant_id', participantId)
+      .eq('center_id', sr.center_id)
+    if (appErr) console.warn('[취소] applications 삭제 실패:', appErr.message)
+
     // 참가자에게 푸시 발송 (fire-and-forget)
     fetch('/api/send-push', {
       method: 'POST',
@@ -852,6 +860,14 @@ export default function AdminPage() {
       const { error } = await supabase.from('stamp_records').delete().eq('id', existingStampId)
       if (error) throw error
 
+      // 신청 기록도 같이 삭제 — 참가자가 처음 상태로 돌아가 재신청 가능
+      const { error: appErr } = await supabase
+        .from('applications')
+        .delete()
+        .eq('participant_id', foundProfile.id)
+        .eq('center_id', orgId)
+      if (appErr) console.warn('[취소] applications 삭제 실패:', appErr.message)
+
       // 참가자에게 푸시 발송 (fire-and-forget)
       const orgName = ORGANIZATIONS.find(o => o.id === orgId)?.name ?? '기관'
       fetch('/api/send-push', {
@@ -935,6 +951,14 @@ export default function AdminPage() {
     try {
       const { error } = await supabase.from('stamp_records').delete().eq('id', cancelTarget.stampId)
       if (error) throw error
+
+      // 신청 기록도 같이 삭제 — 참가자가 처음 상태로 돌아가 재신청 가능
+      const { error: appErr } = await supabase
+        .from('applications')
+        .delete()
+        .eq('participant_id', cancelTarget.participantId)
+        .eq('center_id', cancelTarget.centerId)
+      if (appErr) console.warn('[취소] applications 삭제 실패:', appErr.message)
 
       // 참가자에게 푸시 발송 (fire-and-forget)
       fetch('/api/send-push', {
