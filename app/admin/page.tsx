@@ -455,31 +455,55 @@ export default function AdminPage() {
   const [savedReportsLoading, setSavedReportsLoading] = useState(false)
   const [loadedReport, setLoadedReport] = useState<{ markdown: string; key: string } | null>(null)
 
+  // 센터관리자가 해당 보고서에 접근할 권한이 있는지 검사. 슈퍼관리자는 항상 true.
+  function canAccessReport(row: { scope: 'center' | 'global'; center_id: number | null }): boolean {
+    if (!admin) return false
+    if (admin.role === 'super') return true
+    if (!admin.center_id) return false
+    return row.scope === 'center' && row.center_id === admin.center_id
+  }
+
   async function loadSavedReports() {
     if (!admin) return
     setSavedReportsLoading(true)
     try {
-      let q = supabase
-        .from('reports')
-        .select('id, scope, center_id, title, created_by, created_at')
-        .order('created_at', { ascending: false })
+      // 권한별로 쿼리를 명확히 분기 — 센터관리자는 서버에서 1차 필터링.
+      let query
       if (admin.role === 'center') {
         if (!admin.center_id) {
           setSavedReports([])
           return
         }
-        q = q.eq('scope', 'center').eq('center_id', admin.center_id)
+        query = supabase
+          .from('reports')
+          .select('id, scope, center_id, title, created_by, created_at')
+          .eq('scope', 'center')
+          .eq('center_id', admin.center_id)
+          .order('created_at', { ascending: false })
+      } else {
+        query = supabase
+          .from('reports')
+          .select('id, scope, center_id, title, created_by, created_at')
+          .order('created_at', { ascending: false })
       }
-      const { data } = await q
-      setSavedReports((data ?? []) as SavedReportRow[])
+      const { data, error } = await query
+      if (error) throw error
+
+      // 클라이언트 사이드 2차 필터링 — 서버 필터가 우회되더라도 UI 에 노출 차단.
+      const rows = ((data ?? []) as SavedReportRow[]).filter(canAccessReport)
+      setSavedReports(rows)
+    } catch (e: any) {
+      console.error('[loadSavedReports]', e)
+      setSavedReports([])
     } finally {
       setSavedReportsLoading(false)
     }
   }
 
   async function handleLoadSavedReport(row: SavedReportRow) {
-    if (admin?.role === 'center') {
-      if (row.scope !== 'center' || row.center_id !== admin.center_id) return
+    if (!canAccessReport(row)) {
+      alert('본인 기관 보고서만 불러올 수 있습니다.')
+      return
     }
     try {
       const { data, error } = await supabase
@@ -504,11 +528,25 @@ export default function AdminPage() {
   }
 
   async function handleDeleteSavedReport(row: SavedReportRow) {
-    if (admin?.role === 'center') {
-      if (row.scope !== 'center' || row.center_id !== admin.center_id) return
+    if (!canAccessReport(row)) {
+      alert('본인 기관 보고서만 삭제할 수 있습니다.')
+      return
     }
     if (!confirm(`"${row.title}"\n이 보고서를 삭제하시겠습니까?`)) return
     try {
+      // 삭제 직전 서버 측 한 번 더 확인 — 클라이언트 권한 변조를 방어.
+      if (admin?.role === 'center' && admin.center_id) {
+        const { data: target, error: chkErr } = await supabase
+          .from('reports')
+          .select('scope, center_id')
+          .eq('id', row.id)
+          .maybeSingle()
+        if (chkErr) throw chkErr
+        if (!target || target.scope !== 'center' || target.center_id !== admin.center_id) {
+          alert('본인 기관 보고서만 삭제할 수 있습니다.')
+          return
+        }
+      }
       const { error } = await supabase.from('reports').delete().eq('id', row.id)
       if (error) throw error
       setSavedReports(prev => prev.filter(r => r.id !== row.id))
