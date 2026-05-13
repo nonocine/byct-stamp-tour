@@ -1,10 +1,15 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { Phone, User, Calendar, ChevronLeft, LogIn, UserPlus } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/AuthProvider'
 import type { Profile } from '@/components/AuthProvider'
+import { calculateKoreanAge, minBirthdateForMaxAge } from '@/lib/age'
+
+const ADULT_AGE_LIMIT = 19
+const AGE_RESTRICTION_MESSAGE =
+  '본 서비스는 청소년 대상 프로그램으로, 만 19세 이상은 가입이 제한됩니다.'
 
 type Mode = 'login' | 'signup'
 
@@ -46,6 +51,8 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
 
+  const minBirthdate = useMemo(() => minBirthdateForMaxAge(ADULT_AGE_LIMIT), [])
+
   useEffect(() => {
     if (!loading && profile) router.replace('/')
   }, [profile, loading, router])
@@ -69,7 +76,11 @@ export default function LoginPage() {
     const e: Record<string, string> = {}
     if (!name.trim()) e.name = '이름을 입력해주세요'
     if (rawDigits(phone).length < 10) e.phone = '올바른 전화번호를 입력해주세요'
-    if (!validateBirthdate(birthdate)) e.birthdate = '올바른 생년월일을 입력해주세요 (예: 20100315)'
+    if (!validateBirthdate(birthdate)) {
+      e.birthdate = '올바른 생년월일을 입력해주세요 (예: 20100315)'
+    } else if (calculateKoreanAge(birthdate) >= ADULT_AGE_LIMIT) {
+      e.form = AGE_RESTRICTION_MESSAGE
+    }
     return e
   }
 
@@ -238,8 +249,12 @@ export default function LoginPage() {
             type="tel"
             inputMode="numeric"
             value={birthdate}
-            onChange={e => { setBirthdate(formatBirthdate(e.target.value)); setErrors(v => ({ ...v, birthdate: '' })) }}
+            onChange={e => {
+              setBirthdate(formatBirthdate(e.target.value))
+              setErrors(v => ({ ...v, birthdate: '', form: '' }))
+            }}
             placeholder="2010-03-15"
+            min={mode === 'signup' ? minBirthdate : undefined}
             className={`w-full px-4 py-3 rounded-xl border text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent tracking-wider transition-all ${
               errors.birthdate ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-gray-50'
             }`}
