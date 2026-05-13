@@ -37,6 +37,32 @@ export interface ProgramUpdatePayload {
   image_url?: string | null
 }
 
+export interface ProgramCreatePayload extends ProgramUpdatePayload {
+  id?: string
+  location: string
+}
+
+export async function createProgram(
+  orgId: number,
+  payload: ProgramCreatePayload,
+): Promise<Program> {
+  const id = payload.id ?? `prog-${orgId}-${Date.now()}`
+  const { id: _omit, ...rest } = payload
+  const row = {
+    id,
+    organization_id: orgId,
+    ...rest,
+    updated_at: new Date().toISOString(),
+  }
+  const { data, error } = await supabase
+    .from('programs')
+    .insert(row)
+    .select()
+    .single()
+  if (error) throw error
+  return data as Program
+}
+
 export async function updateProgram(
   programId: string,
   ownerOrgId: number,

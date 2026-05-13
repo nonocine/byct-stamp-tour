@@ -5,7 +5,7 @@ import {
   BarChart3, Users, Stamp, TrendingUp, RefreshCw, Search, CheckCircle, XCircle,
   LogOut, Shield, Plus, Trash2, Phone, UserCheck, ChevronLeft, ChevronRight,
   Edit2, X, Save, ChevronDown, ChevronUp, Download, Link2, ExternalLink, Star,
-  Image as ImageIcon, Upload, FileText,
+  Image as ImageIcon, Upload, FileText, PlusCircle,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
@@ -234,6 +234,9 @@ export default function AdminPage() {
   const [programs, setPrograms] = useState<Program[]>([])
   const [programsLoading, setProgramsLoading] = useState(false)
   const [editingProgram, setEditingProgram] = useState<Program | null>(null)
+  const [creatingProgram, setCreatingProgram] = useState(false)
+  // 슈퍼관리자: 기관 필터. null = 전체, number = 해당 org_id 만 표시
+  const [programOrgFilter, setProgramOrgFilter] = useState<number | null>(null)
 
   async function loadPrograms() {
     setProgramsLoading(true)
@@ -2867,11 +2870,45 @@ export default function AdminPage() {
             onChange={handlePdfFileSelected}
           />
 
-          {admin.role === 'center' && (
-            <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3">
-              <p className="text-xs text-blue-700">
-                <span className="font-semibold">{admin.center_name ?? '본인 기관'}</span>의 프로그램만 수정할 수 있습니다.
-              </p>
+          {/* 상단 헤더 — 역할별 안내 + 신규 등록 버튼 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-5 py-4 flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              {admin.role === 'center' ? (
+                <>
+                  <h2 className="text-base font-bold text-gray-900 truncate">
+                    {admin.center_name ?? '본인 기관'} 프로그램 관리
+                  </h2>
+                  <p className="text-xs text-gray-500 mt-0.5">본인 기관의 프로그램만 등록·수정할 수 있습니다.</p>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-base font-bold text-gray-900">전체 프로그램 관리</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">17개 기관의 모든 프로그램을 등록·수정할 수 있습니다.</p>
+                </>
+              )}
+            </div>
+            <button
+              onClick={() => setCreatingProgram(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white text-xs font-semibold rounded-xl hover:bg-blue-700 active:scale-95 transition-all flex-shrink-0"
+            >
+              <PlusCircle size={13} /> 신규 등록
+            </button>
+          </div>
+
+          {/* 슈퍼관리자: 기관 필터 드롭다운 */}
+          {admin.role === 'super' && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3 flex items-center gap-3">
+              <label className="text-xs font-semibold text-gray-600 flex-shrink-0">기관 필터</label>
+              <select
+                value={programOrgFilter ?? ''}
+                onChange={e => setProgramOrgFilter(e.target.value === '' ? null : Number(e.target.value))}
+                className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-gray-800"
+              >
+                <option value="">전체 보기</option>
+                {ORGANIZATIONS.map(o => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
+                ))}
+              </select>
             </div>
           )}
 
@@ -2887,10 +2924,24 @@ export default function AdminPage() {
 
             {programsLoading ? (
               <div className="py-10 flex justify-center"><RefreshCw size={18} className="animate-spin text-gray-300" /></div>
-            ) : (
-              <div className="divide-y divide-gray-100">
-                {ORGANIZATIONS
+            ) : (() => {
+                const visibleOrgs = ORGANIZATIONS
                   .filter(org => admin.role === 'super' || admin.center_id === org.id)
+                  .filter(org => admin.role !== 'super' || programOrgFilter === null || programOrgFilter === org.id)
+                const totalVisible = visibleOrgs.reduce(
+                  (sum, org) => sum + programs.filter(p => p.organization_id === org.id).length,
+                  0,
+                )
+                if (totalVisible === 0) {
+                  return (
+                    <p className="py-10 text-center text-sm text-gray-400">
+                      등록된 프로그램이 없습니다
+                    </p>
+                  )
+                }
+                return (
+              <div className="divide-y divide-gray-100">
+                {visibleOrgs
                   .map(org => {
                     const orgPrograms = programs.filter(p => p.organization_id === org.id)
                     const editable = admin.role === 'super' || admin.center_id === org.id
@@ -2939,7 +2990,14 @@ export default function AdminPage() {
                                       />
                                     )}
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-semibold text-gray-900 truncate">{program.title}</p>
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <p className="text-sm font-semibold text-gray-900 truncate flex-1 min-w-0">{program.title}</p>
+                                        {admin.role === 'super' && (
+                                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold ${org.bgColor} text-white flex-shrink-0`}>
+                                            {org.shortName}
+                                          </span>
+                                        )}
+                                      </div>
                                       <p className="text-xs text-gray-500 mt-0.5 truncate">
                                         {program.date} · {program.time}
                                       </p>
@@ -3028,7 +3086,9 @@ export default function AdminPage() {
                     )
                   })}
               </div>
-            )}
+                )
+              })()
+            }
           </div>
 
           <p className="text-xs text-gray-400 text-center px-2">
@@ -3274,15 +3334,30 @@ export default function AdminPage() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════
-          프로그램 수정 모달
+          프로그램 수정/등록 모달
       ══════════════════════════════════════════════════════════════════ */}
       {editingProgram && (
         <ProgramEditModal
           program={editingProgram}
-          ownerOrgId={editingProgram.organization_id}
+          defaultOrgId={editingProgram.organization_id}
           onClose={() => setEditingProgram(null)}
           onSaved={updated => {
             setPrograms(prev => prev.map(p => p.id === updated.id ? updated : p))
+          }}
+        />
+      )}
+      {creatingProgram && (
+        <ProgramEditModal
+          program={null}
+          defaultOrgId={
+            admin.role === 'center' && admin.center_id
+              ? admin.center_id
+              : (programOrgFilter ?? ORGANIZATIONS[0].id)
+          }
+          orgChoices={admin.role === 'super' ? ORGANIZATIONS : undefined}
+          onClose={() => setCreatingProgram(false)}
+          onSaved={created => {
+            setPrograms(prev => [...prev, created])
           }}
         />
       )}

@@ -1,25 +1,42 @@
 'use client'
 import { useState } from 'react'
 import { X, Save, ImagePlus, RefreshCw, CheckCircle } from 'lucide-react'
-import { updateProgram, uploadProgramImage } from '@/lib/programs'
-import type { Program } from '@/lib/types'
+import { createProgram, updateProgram, uploadProgramImage } from '@/lib/programs'
+import type { Program, Organization } from '@/lib/types'
 
 interface Props {
-  program: Program
-  ownerOrgId: number
+  // null = 신규 등록 모드 / Program = 수정 모드
+  program: Program | null
+  // 신규 등록 시 기본 선택 기관 (센터관리자: 본인 기관 / 슈퍼관리자: 임의 디폴트)
+  defaultOrgId: number
+  // 슈퍼관리자가 신규 등록 시 기관을 선택할 수 있도록 후보 목록을 넘긴다.
+  // 비어 있거나 undefined 면 기관 선택 UI 가 숨겨지고 defaultOrgId 가 사용된다.
+  orgChoices?: Organization[]
   onClose: () => void
-  onSaved: (updated: Program) => void
+  onSaved: (program: Program) => void
 }
 
-export default function ProgramEditModal({ program, ownerOrgId, onClose, onSaved }: Props) {
-  const [title, setTitle] = useState(program.title)
-  const [description, setDescription] = useState(program.description ?? '')
-  const [date, setDate] = useState(program.date ?? '')
-  const [time, setTime] = useState(program.time ?? '')
-  const [capacity, setCapacity] = useState(String(program.capacity ?? 0))
-  const [target, setTarget] = useState(program.target ?? '')
-  const [imageUrl, setImageUrl] = useState<string | null>(program.image_url ?? null)
-  const [previewUrl, setPreviewUrl] = useState<string | null>(program.image_url ?? null)
+export default function ProgramEditModal({
+  program,
+  defaultOrgId,
+  orgChoices,
+  onClose,
+  onSaved,
+}: Props) {
+  const isCreate = program === null
+  const showOrgPicker = isCreate && !!orgChoices && orgChoices.length > 0
+
+  const [selectedOrgId, setSelectedOrgId] = useState<number>(
+    program?.organization_id ?? defaultOrgId,
+  )
+  const [title, setTitle] = useState(program?.title ?? '')
+  const [description, setDescription] = useState(program?.description ?? '')
+  const [date, setDate] = useState(program?.date ?? '')
+  const [time, setTime] = useState(program?.time ?? '')
+  const [capacity, setCapacity] = useState(String(program?.capacity ?? 0))
+  const [target, setTarget] = useState(program?.target ?? '')
+  const [imageUrl, setImageUrl] = useState<string | null>(program?.image_url ?? null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(program?.image_url ?? null)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -52,31 +69,56 @@ export default function ProgramEditModal({ program, ownerOrgId, onClose, onSaved
     if (!title.trim()) { setError('프로그램 제목을 입력해주세요.'); return }
     const cap = Number(capacity)
     if (!Number.isFinite(cap) || cap < 0) { setError('정원은 0 이상의 숫자여야 합니다.'); return }
+    if (isCreate && !selectedOrgId) { setError('기관을 선택해주세요.'); return }
 
     setSaving(true)
     try {
-      let nextImageUrl: string | null = imageUrl
-      if (pendingFile) {
-        nextImageUrl = await uploadProgramImage(program.id, ownerOrgId, pendingFile)
+      if (isCreate) {
+        const orgId = selectedOrgId
+        const newId = `prog-${orgId}-${Date.now()}`
+        let nextImageUrl: string | null = null
+        if (pendingFile) {
+          nextImageUrl = await uploadProgramImage(newId, orgId, pendingFile)
+        }
+        const orgName = orgChoices?.find(o => o.id === orgId)?.name ?? ''
+        const created = await createProgram(orgId, {
+          id: newId,
+          title: title.trim(),
+          description: description.trim(),
+          date: date.trim(),
+          time: time.trim(),
+          capacity: cap,
+          target: target.trim(),
+          image_url: nextImageUrl,
+          location: orgName,
+        })
+        setToast(true)
+        setTimeout(() => {
+          onSaved(created)
+          onClose()
+        }, 700)
+      } else {
+        let nextImageUrl: string | null = imageUrl
+        if (pendingFile) {
+          nextImageUrl = await uploadProgramImage(program!.id, program!.organization_id, pendingFile)
+        }
+        const payload = {
+          title: title.trim(),
+          description: description.trim(),
+          date: date.trim(),
+          time: time.trim(),
+          capacity: cap,
+          target: target.trim(),
+          image_url: nextImageUrl,
+        }
+        await updateProgram(program!.id, program!.organization_id, payload)
+        const updated: Program = { ...program!, ...payload }
+        setToast(true)
+        setTimeout(() => {
+          onSaved(updated)
+          onClose()
+        }, 700)
       }
-
-      const payload = {
-        title: title.trim(),
-        description: description.trim(),
-        date: date.trim(),
-        time: time.trim(),
-        capacity: cap,
-        target: target.trim(),
-        image_url: nextImageUrl,
-      }
-      await updateProgram(program.id, ownerOrgId, payload)
-
-      const updated: Program = { ...program, ...payload }
-      setToast(true)
-      setTimeout(() => {
-        onSaved(updated)
-        onClose()
-      }, 900)
     } catch (e: any) {
       console.error('[ProgramEditModal] save error:', e)
       setError(e?.message ?? '저장에 실패했습니다.')
@@ -95,7 +137,9 @@ export default function ProgramEditModal({ program, ownerOrgId, onClose, onSaved
         onClick={e => e.stopPropagation()}
       >
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
-          <h3 className="text-base font-bold text-gray-900">프로그램 수정</h3>
+          <h3 className="text-base font-bold text-gray-900">
+            {isCreate ? '프로그램 등록' : '프로그램 수정'}
+          </h3>
           <button
             onClick={onClose}
             disabled={saving}
@@ -106,6 +150,21 @@ export default function ProgramEditModal({ program, ownerOrgId, onClose, onSaved
         </div>
 
         <div className="px-5 py-5 space-y-3">
+          {showOrgPicker && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">기관</label>
+              <select
+                value={selectedOrgId}
+                onChange={e => setSelectedOrgId(Number(e.target.value))}
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-gray-800"
+              >
+                {orgChoices!.map(o => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1.5">대표 사진</label>
             {previewUrl ? (
@@ -209,7 +268,9 @@ export default function ProgramEditModal({ program, ownerOrgId, onClose, onSaved
           {toast && (
             <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center gap-2">
               <CheckCircle size={16} className="text-green-600" />
-              <p className="text-sm text-green-700 font-semibold">수정되었습니다</p>
+              <p className="text-sm text-green-700 font-semibold">
+                {isCreate ? '등록되었습니다' : '수정되었습니다'}
+              </p>
             </div>
           )}
         </div>
@@ -228,7 +289,7 @@ export default function ProgramEditModal({ program, ownerOrgId, onClose, onSaved
             className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50"
           >
             {saving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
-            {saving ? '저장 중...' : '저장'}
+            {saving ? '저장 중...' : (isCreate ? '등록' : '저장')}
           </button>
         </div>
       </div>
