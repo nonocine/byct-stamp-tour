@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase'
 import { useAdmin } from '@/components/AdminProvider'
 import { ORGANIZATIONS } from '@/lib/data'
 import { fetchAllPrograms } from '@/lib/programs'
+import { deleteParticipantsCascade, fetchAllParticipantIds } from '@/lib/participants'
 import type { Program } from '@/lib/types'
 import OrgIcon from '@/components/OrgIcon'
 import ProgramEditModal from '@/components/ProgramEditModal'
@@ -202,6 +203,84 @@ export default function AdminPage() {
   const [pStamps, setPStamps] = useState<StampRecordRow[]>([])
   const [pStampsLoading, setPStampsLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
+
+  // ── 참가자 일괄/선택 삭제 (슈퍼관리자 전용) ──────────────────────────────
+  const [selectedPIds, setSelectedPIds] = useState<Set<string>>(new Set())
+  const [bulkDeleteMode, setBulkDeleteMode] = useState<'selected' | 'all' | null>(null)
+  const [bulkDeleteText, setBulkDeleteText] = useState('')
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [bulkDeleteError, setBulkDeleteError] = useState('')
+  const [allProfileIds, setAllProfileIds] = useState<string[]>([])
+  const [deleteToast, setDeleteToast] = useState('')
+
+  function togglePSelect(id: string) {
+    setSelectedPIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAllParticipants() {
+    setSelectedPIds(prev => {
+      const allIds = pList.map(p => p.id)
+      const allSelected = allIds.length > 0 && allIds.every(id => prev.has(id))
+      return allSelected ? new Set() : new Set(allIds)
+    })
+  }
+
+  async function openDeleteAllModal() {
+    if (admin?.role !== 'super') return
+    setBulkDeleteText('')
+    setBulkDeleteError('')
+    try {
+      const ids = await fetchAllParticipantIds()
+      setAllProfileIds(ids)
+      setBulkDeleteMode('all')
+    } catch (e: any) {
+      alert(e?.message ?? '참가자 목록 조회에 실패했습니다')
+    }
+  }
+
+  function openDeleteSelectedModal() {
+    if (admin?.role !== 'super' || selectedPIds.size === 0) return
+    setBulkDeleteText('')
+    setBulkDeleteError('')
+    setBulkDeleteMode('selected')
+  }
+
+  function closeBulkDeleteModal() {
+    if (bulkDeleting) return
+    setBulkDeleteMode(null)
+    setBulkDeleteText('')
+    setBulkDeleteError('')
+  }
+
+  async function handleConfirmBulkDelete() {
+    if (admin?.role !== 'super') return
+    if (bulkDeleteText !== 'DELETE') return
+    const ids = bulkDeleteMode === 'all' ? allProfileIds : Array.from(selectedPIds)
+    if (ids.length === 0) return
+
+    setBulkDeleting(true)
+    setBulkDeleteError('')
+    try {
+      await deleteParticipantsCascade(ids)
+      setBulkDeleteMode(null)
+      setBulkDeleteText('')
+      setSelectedPIds(new Set())
+      setExpandedPId(null)
+      setPPage(0)
+      setDeleteToast(`${ids.length}명 삭제 완료`)
+      setTimeout(() => setDeleteToast(''), 4000)
+      loadParticipants(0, pSearch, pCenterId)
+    } catch (e: any) {
+      setBulkDeleteError(e?.message ?? '삭제에 실패했습니다')
+    } finally {
+      setBulkDeleting(false)
+    }
+  }
 
   // ── 관리자 관리 ──────────────────────────────────────────────────────────
   const [admins, setAdmins] = useState<AdminRow[]>([])
@@ -816,6 +895,7 @@ export default function AdminPage() {
   const loadParticipants = useCallback(async (p: number, search: string, centerId: number | null) => {
     if (!admin) return
     setPLoading(true)
+    setSelectedPIds(new Set())
     try {
       // 기관관리자는 본인 기관으로 강제 (UI 우회 방어)
       const effectiveCenterId = admin.role === 'center' ? (admin.center_id ?? null) : centerId
@@ -954,12 +1034,9 @@ export default function AdminPage() {
 
   async function handleDeleteParticipant(p: ParticipantRow) {
     if (admin?.role !== 'super') return
-    if (!confirm(`"${p.name}" 참가자를 삭제하면 스탬프 기록(${p.stampCount}개)도 함께 삭제됩니다.\n정말 삭제하시겠습니까?`)) return
+    if (!confirm(`"${p.name}" 참가자를 삭제하면 스탬프/리뷰/신청/푸시구독 기록도 함께 삭제됩니다.\n정말 삭제하시겠습니까?`)) return
     try {
-      const { error: stampErr } = await supabase.from('stamp_records').delete().eq('participant_id', p.id)
-      if (stampErr) throw stampErr
-      const { error: profErr } = await supabase.from('profiles').delete().eq('id', p.id)
-      if (profErr) throw profErr
+      await deleteParticipantsCascade([p.id])
       if (expandedPId === p.id) setExpandedPId(null)
       loadParticipants(pPage, pSearch, pCenterId)
     } catch (e: any) {
@@ -2186,6 +2263,32 @@ export default function AdminPage() {
             </button>
           </div>
 
+          {/* 삭제 완료 토스트 */}
+          {deleteToast && (
+            <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 text-sm text-green-700 font-semibold">
+              ✓ {deleteToast}
+            </div>
+          )}
+
+          {/* 일괄/선택 삭제 액션 바 (슈퍼관리자 전용) */}
+          {admin.role === 'super' && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3 flex items-center gap-2 flex-wrap">
+              <button
+                onClick={openDeleteSelectedModal}
+                disabled={selectedPIds.size === 0}
+                className="flex items-center gap-1.5 px-3 py-2 bg-red-50 text-red-600 text-xs font-semibold rounded-xl hover:bg-red-100 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash2 size={13} /> 선택 삭제 ({selectedPIds.size}명)
+              </button>
+              <button
+                onClick={openDeleteAllModal}
+                className="flex items-center gap-1.5 px-3 py-2 bg-red-600 text-white text-xs font-bold rounded-xl hover:bg-red-700 active:scale-95 transition-all ml-auto"
+              >
+                <Trash2 size={13} /> 테스트 데이터 전체 삭제
+              </button>
+            </div>
+          )}
+
           {/* 참가자 목록 */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
@@ -2202,6 +2305,21 @@ export default function AdminPage() {
                 <RefreshCw size={13} className={pLoading ? 'animate-spin' : ''} />
               </button>
             </div>
+
+            {/* 전체 선택 (슈퍼관리자 전용) */}
+            {admin.role === 'super' && !pLoading && pList.length > 0 && (
+              <label className="px-5 py-2.5 border-b border-gray-100 bg-gray-50/60 flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={pList.length > 0 && pList.every(p => selectedPIds.has(p.id))}
+                  onChange={toggleSelectAllParticipants}
+                  className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                />
+                <span className="text-xs font-medium text-gray-500">
+                  전체 선택 ({selectedPIds.size}/{pList.length})
+                </span>
+              </label>
+            )}
 
             {pLoading ? (
               <div className="py-10 flex justify-center"><RefreshCw size={18} className="animate-spin text-gray-300" /></div>
@@ -2220,6 +2338,14 @@ export default function AdminPage() {
                   .map(p => (
                   <div key={p.id} className="px-5 py-3.5">
                     <div className="flex items-center justify-between gap-2">
+                      {admin.role === 'super' && (
+                        <input
+                          type="checkbox"
+                          checked={selectedPIds.has(p.id)}
+                          onChange={() => togglePSelect(p.id)}
+                          className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500 flex-shrink-0"
+                        />
+                      )}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-semibold text-gray-900">{p.name}</p>
@@ -3367,6 +3493,83 @@ export default function AdminPage() {
                 })}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          참가자 일괄/선택 삭제 확인 모달 (super only)
+      ══════════════════════════════════════════════════════════════════ */}
+      {bulkDeleteMode && admin.role === 'super' && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onClick={closeBulkDeleteModal}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-md shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-base font-bold text-red-600 flex items-center gap-2">
+                <Trash2 size={16} />
+                {bulkDeleteMode === 'all' ? '테스트 데이터 전체 삭제' : '선택 참가자 삭제'}
+              </h3>
+              <button
+                onClick={closeBulkDeleteModal}
+                disabled={bulkDeleting}
+                className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="px-5 py-5 space-y-3">
+              <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                <p className="text-sm text-red-700 leading-relaxed">
+                  {bulkDeleteMode === 'all'
+                    ? `현재 가입된 참가자 ${allProfileIds.length}명과 모든 스탬프/리뷰/신청/푸시구독 기록이 영구 삭제됩니다. 복구할 수 없습니다.`
+                    : `선택한 참가자 ${selectedPIds.size}명과 그 참가자들의 모든 스탬프/리뷰/신청/푸시구독 기록이 영구 삭제됩니다. 복구할 수 없습니다.`}
+                </p>
+                <p className="text-xs text-red-500 mt-1.5">※ 관리자 계정은 삭제되지 않습니다.</p>
+              </div>
+              <p className="text-xs text-gray-500">
+                계속하려면 아래에 <span className="font-bold text-gray-900">DELETE</span> 를 정확히 입력하세요.
+              </p>
+              <input
+                type="text"
+                value={bulkDeleteText}
+                onChange={e => setBulkDeleteText(e.target.value)}
+                placeholder="DELETE"
+                autoFocus
+                disabled={bulkDeleting}
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
+              />
+              {bulkDeleteError && (
+                <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                  <p className="text-sm text-red-600">{bulkDeleteError}</p>
+                </div>
+              )}
+            </div>
+            <div className="px-5 pb-5 flex gap-2">
+              <button
+                onClick={closeBulkDeleteModal}
+                disabled={bulkDeleting}
+                className="flex-1 py-3 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleConfirmBulkDelete}
+                disabled={
+                  bulkDeleting ||
+                  bulkDeleteText !== 'DELETE' ||
+                  (bulkDeleteMode === 'all' ? allProfileIds.length === 0 : selectedPIds.size === 0)
+                }
+                className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-red-600 text-white text-sm font-semibold rounded-xl hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {bulkDeleting ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                {bulkDeleting ? '삭제 중...' : '영구 삭제'}
+              </button>
+            </div>
           </div>
         </div>
       )}
