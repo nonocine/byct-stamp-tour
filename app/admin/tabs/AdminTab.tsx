@@ -1,10 +1,17 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { Plus, Shield, RefreshCw, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Plus, Shield, RefreshCw, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS } from '@/lib/data'
 import type { AdminUser } from '@/components/AdminProvider'
 import { formatPhone, type AdminRow } from './shared'
+
+interface AdminGroup {
+  key: string
+  label: string
+  isSuper: boolean
+  members: AdminRow[]
+}
 
 interface Props {
   admin: AdminUser
@@ -16,6 +23,52 @@ export default function AdminTab({ admin }: Props) {
   const [newAdmin, setNewAdmin] = useState({ name: '', phone: '', password: '', role: 'center' as 'super' | 'center', center_id: '' })
   const [addingAdmin, setAddingAdmin] = useState(false)
   const [adminError, setAdminError] = useState('')
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+
+  function toggleSection(key: string) {
+    setCollapsed(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const groups = useMemo<AdminGroup[]>(() => {
+    const supers = admins.filter(a => a.role === 'super')
+    const centers = admins.filter(a => a.role !== 'super')
+
+    const orgGroups: AdminGroup[] = ORGANIZATIONS
+      .map(org => ({
+        key: `org-${org.id}`,
+        label: org.name,
+        isSuper: false,
+        members: centers.filter(a => a.center_id === org.id),
+      }))
+      .filter(g => g.members.length > 0)
+
+    // 기관 미지정 센터관리자 (방어적 — RLS/데이터 오류로 발생 가능)
+    const orphans = centers.filter(a => !ORGANIZATIONS.some(o => o.id === a.center_id))
+    if (orphans.length > 0) {
+      orgGroups.push({
+        key: 'org-unassigned',
+        label: '기관 미지정',
+        isSuper: false,
+        members: orphans,
+      })
+    }
+
+    const result: AdminGroup[] = []
+    if (supers.length > 0) {
+      result.push({
+        key: 'super',
+        label: '협회 (슈퍼관리자)',
+        isSuper: true,
+        members: supers,
+      })
+    }
+    return result.concat(orgGroups)
+  }, [admins])
 
   async function loadAdmins() {
     setAdminsLoading(true)
@@ -88,28 +141,62 @@ export default function AdminTab({ admin }: Props) {
         </div>
         {adminsLoading ? (
           <div className="py-8 text-center text-sm text-gray-400">불러오는 중...</div>
-        ) : admins.length === 0 ? (
+        ) : groups.length === 0 ? (
           <div className="py-8 text-center text-sm text-gray-400">등록된 관리자가 없습니다</div>
         ) : (
-          <div className="divide-y divide-gray-50">
-            {admins.map(a => (
-              <div key={a.id} className="px-5 py-3.5 flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-gray-900">{a.name}</p>
-                    <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${a.role === 'super' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                      {a.role === 'super' ? '슈퍼' : '센터'}
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-400 mt-0.5">{formatPhone(a.phone)}{a.center_name ? ` · ${a.center_name}` : ''}</p>
-                </div>
-                {a.id !== admin.id && (
-                  <button onClick={() => handleDeleteAdmin(a.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                    <Trash2 size={15} />
+          <div className="divide-y divide-gray-100">
+            {groups.map(group => {
+              const isCollapsed = collapsed.has(group.key)
+              return (
+                <div key={group.key}>
+                  <button
+                    type="button"
+                    onClick={() => toggleSection(group.key)}
+                    className={`w-full px-5 py-2.5 flex items-center justify-between text-left transition-colors ${
+                      group.isSuper
+                        ? 'bg-purple-50/60 hover:bg-purple-50'
+                        : 'bg-gray-50 hover:bg-gray-100'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`text-sm font-bold truncate ${group.isSuper ? 'text-purple-700' : 'text-gray-700'}`}>
+                        {group.label}
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${
+                        group.isSuper ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {group.members.length}명
+                      </span>
+                    </div>
+                    {isCollapsed
+                      ? <ChevronDown size={14} className="text-gray-400 flex-shrink-0" />
+                      : <ChevronUp size={14} className="text-gray-400 flex-shrink-0" />}
                   </button>
-                )}
-              </div>
-            ))}
+                  {!isCollapsed && (
+                    <div className="divide-y divide-gray-50">
+                      {group.members.map(a => (
+                        <div key={a.id} className="px-5 py-3.5 flex items-center justify-between">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-semibold text-gray-900">{a.name}</p>
+                              <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${a.role === 'super' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                                {a.role === 'super' ? '슈퍼' : '센터'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-400 mt-0.5">{formatPhone(a.phone)}{a.center_name ? ` · ${a.center_name}` : ''}</p>
+                          </div>
+                          {a.id !== admin.id && (
+                            <button onClick={() => handleDeleteAdmin(a.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                              <Trash2 size={15} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
