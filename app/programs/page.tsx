@@ -50,6 +50,23 @@ export default function ProgramsPage() {
     loadPrograms()
   }, [])
 
+  // ?center={id} 쿼리 진입 시 해당 기관 자동 펼치기 + 스크롤
+  // (정적 prerender 호환을 위해 useSearchParams 대신 window.location.search 사용)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const raw = params.get('center')
+    if (!raw) return
+    const centerId = Number(raw)
+    if (!Number.isInteger(centerId)) return
+    if (!ORGANIZATIONS.some(o => o.id === centerId)) return
+    setExpanded(centerId)
+    // 카드 DOM이 펼쳐진 후 스크롤
+    setTimeout(() => {
+      orgCardRefs.current[centerId]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 100)
+  }, [])
+
   async function loadPrograms() {
     const data = await fetchAllPrograms()
     setPrograms(data)

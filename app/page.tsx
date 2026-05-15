@@ -204,7 +204,7 @@ export default function HomePage() {
           {ORGANIZATIONS.slice(0, 8).map(org => (
             <Link
               key={org.id}
-              href="/programs"
+              href={`/programs?center=${org.id}`}
               className="flex flex-col items-center gap-1.5 bg-white rounded-2xl p-3 shadow-sm border border-gray-100 hover:shadow-md transition-shadow"
             >
               <OrgIcon org={org} size={40} rounded="rounded-xl" />
@@ -214,7 +214,12 @@ export default function HomePage() {
             </Link>
           ))}
         </div>
-        <p className="text-center text-xs text-gray-400 mt-2">외 9개 기관 더보기 →</p>
+        <Link
+          href="/programs"
+          className="block text-center text-xs text-gray-500 mt-2 cursor-pointer hover:text-blue-600 hover:underline transition-colors"
+        >
+          외 9개 기관 더보기 →
+        </Link>
       </div>
 
       {/* 운영 안내 */}
