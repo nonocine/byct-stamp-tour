@@ -212,6 +212,7 @@ export default function AdminPage() {
   const [bulkDeleteError, setBulkDeleteError] = useState('')
   const [allProfileIds, setAllProfileIds] = useState<string[]>([])
   const [deleteToast, setDeleteToast] = useState('')
+  const [dangerZoneOpen, setDangerZoneOpen] = useState(false)
 
   function togglePSelect(id: string) {
     setSelectedPIds(prev => {
@@ -2280,12 +2281,6 @@ export default function AdminPage() {
               >
                 <Trash2 size={13} /> 선택 삭제 ({selectedPIds.size}명)
               </button>
-              <button
-                onClick={openDeleteAllModal}
-                className="flex items-center gap-1.5 px-3 py-2 bg-red-600 text-white text-xs font-bold rounded-xl hover:bg-red-700 active:scale-95 transition-all ml-auto"
-              >
-                <Trash2 size={13} /> 테스트 데이터 전체 삭제
-              </button>
             </div>
           )}
 
@@ -2466,6 +2461,36 @@ export default function AdminPage() {
               </div>
             )}
           </div>
+
+          {/* 위험 구역 (슈퍼관리자 전용) — 참가자 관리 탭 맨 아래 */}
+          {admin.role === 'super' && (
+            <div className="border border-red-300 bg-red-50/60 rounded-2xl overflow-hidden">
+              <button
+                onClick={() => setDangerZoneOpen(o => !o)}
+                className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-red-50 transition-colors"
+              >
+                <div>
+                  <h3 className="text-sm font-bold text-red-700">⚠️ 위험 구역</h3>
+                  <p className="text-xs text-red-500 mt-0.5">
+                    아래 작업은 되돌릴 수 없습니다. 신중히 진행하세요.
+                  </p>
+                </div>
+                {dangerZoneOpen
+                  ? <ChevronUp size={16} className="text-red-400 flex-shrink-0" />
+                  : <ChevronDown size={16} className="text-red-400 flex-shrink-0" />}
+              </button>
+              {dangerZoneOpen && (
+                <div className="px-5 pb-4 pt-1 border-t border-red-200">
+                  <button
+                    onClick={openDeleteAllModal}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-red-600 text-white text-xs font-bold rounded-xl hover:bg-red-700 active:scale-95 transition-all"
+                  >
+                    <Trash2 size={13} /> 모든 참가자 데이터 삭제
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -3512,7 +3537,7 @@ export default function AdminPage() {
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="text-base font-bold text-red-600 flex items-center gap-2">
                 <Trash2 size={16} />
-                {bulkDeleteMode === 'all' ? '테스트 데이터 전체 삭제' : '선택 참가자 삭제'}
+                {bulkDeleteMode === 'all' ? '모든 참가자 데이터 삭제' : '선택 참가자 삭제'}
               </h3>
               <button
                 onClick={closeBulkDeleteModal}
