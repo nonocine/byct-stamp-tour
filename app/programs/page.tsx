@@ -250,6 +250,8 @@ export default function ProgramsPage() {
         {ORGANIZATIONS.map(org => {
           const orgPrograms = programs.filter(p => p.organization_id === org.id)
           const isExpanded  = expanded === org.id
+          // 신청 단계 (① → 알림 뱃지) — 0이면 뱃지 숨김
+          const applyStep   = 1
 
           return (
             <div
@@ -286,15 +288,22 @@ export default function ProgramsPage() {
                   {/* 신청 링크 + 신청 완료 */}
                   <div className="px-4 pt-3 flex gap-2">
                     {centerUrls[org.id] ? (
-                      <a
-                        href={centerUrls[org.id]}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-1 flex items-center justify-center gap-2 py-3 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all"
-                      >
-                        ① 프로그램 신청하기
-                        <ExternalLink size={14} />
-                      </a>
+                      <div className="relative flex-1">
+                        <a
+                          href={centerUrls[org.id]}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all"
+                        >
+                          프로그램 신청하기
+                          <ExternalLink size={14} />
+                        </a>
+                        {applyStep > 0 && (
+                          <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1.5 flex items-center justify-center bg-red-500 text-white text-[11px] font-bold rounded-full shadow-sm leading-none">
+                            {applyStep}
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <div className="flex-1 py-3 bg-gray-100 text-gray-400 text-sm font-medium rounded-xl text-center">
                         준비중
