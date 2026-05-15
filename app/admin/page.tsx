@@ -68,7 +68,7 @@ export default function AdminPage() {
     { key: 'links', label: '기관 링크' },
     { key: 'programs', label: '프로그램 관리' },
     { key: 'reports', label: '보고서' },
-    ...(admin.role === 'super' ? [{ key: 'admins' as Tab, label: '관리자 관리' }] : []),
+    ...(admin.role === 'super' ? [{ key: 'admins' as Tab, label: '센터관리자 관리' }] : []),
   ]
 
   return (

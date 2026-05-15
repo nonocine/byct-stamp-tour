@@ -102,7 +102,7 @@ export default function AdminTab({ admin }: Props) {
   }
 
   async function handleDeleteAdmin(id: string) {
-    if (!confirm('이 관리자를 삭제할까요?')) return
+    if (!confirm('이 센터관리자를 삭제할까요?')) return
     await supabase.from('admins').delete().eq('id', id)
     loadAdmins()
   }
@@ -114,7 +114,7 @@ export default function AdminTab({ admin }: Props) {
   return (
     <div className="px-4 space-y-4">
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
-        <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2"><Plus size={15} /> 관리자 추가</h2>
+        <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2"><Plus size={15} /> 센터관리자 추가</h2>
         <input type="text" value={newAdmin.name} onChange={e => setNewAdmin(p => ({ ...p, name: e.target.value }))} placeholder="이름" className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-gray-800" />
         <input type="tel" inputMode="numeric" value={newAdmin.phone} onChange={e => setNewAdmin(p => ({ ...p, phone: formatPhone(e.target.value) }))} placeholder="전화번호" className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm tracking-wider focus:outline-none focus:ring-2 focus:ring-gray-800" />
         <input type="password" value={newAdmin.password} onChange={e => setNewAdmin(p => ({ ...p, password: e.target.value }))} placeholder="비밀번호" className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-gray-800" />
@@ -130,19 +130,19 @@ export default function AdminTab({ admin }: Props) {
         )}
         {adminError && <p className="text-xs text-red-500">{adminError}</p>}
         <button onClick={handleAddAdmin} disabled={addingAdmin} className="w-full py-3.5 bg-gray-900 text-white font-bold rounded-xl hover:bg-gray-800 active:scale-95 transition-all disabled:opacity-50">
-          {addingAdmin ? '추가 중...' : '관리자 추가'}
+          {addingAdmin ? '추가 중...' : '센터관리자 추가'}
         </button>
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2"><Shield size={15} /> 관리자 목록</h2>
+          <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2"><Shield size={15} /> 센터관리자 목록</h2>
           <button onClick={loadAdmins} className="text-gray-400 hover:text-gray-600 transition-colors"><RefreshCw size={13} /></button>
         </div>
         {adminsLoading ? (
           <div className="py-8 text-center text-sm text-gray-400">불러오는 중...</div>
         ) : groups.length === 0 ? (
-          <div className="py-8 text-center text-sm text-gray-400">등록된 관리자가 없습니다</div>
+          <div className="py-8 text-center text-sm text-gray-400">등록된 센터관리자가 없습니다</div>
         ) : (
           <div className="divide-y divide-gray-100">
             {groups.map(group => {
