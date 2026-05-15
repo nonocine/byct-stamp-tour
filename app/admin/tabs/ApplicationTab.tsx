@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
-import { Stamp, RefreshCw } from 'lucide-react'
+import { Stamp, RefreshCw, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS } from '@/lib/data'
 import OrgIcon from '@/components/OrgIcon'
@@ -17,6 +17,11 @@ interface Props {
   onPendingCountChange?: (count: number) => void
 }
 
+// 스탬프 발급 여부 키: `${participant_id}-${center_id}`
+function stampKey(participantId: string, centerId: number) {
+  return `${participantId}-${centerId}`
+}
+
 export default function ApplicationTab({ admin, onPendingCountChange }: Props) {
   const [applications, setApplications] = useState<ApplicationRow[]>([])
   const [applicationsLoading, setApplicationsLoading] = useState(false)
@@ -25,6 +30,7 @@ export default function ApplicationTab({ admin, onPendingCountChange }: Props) {
   )
   const [processingAppId, setProcessingAppId] = useState<string | null>(null)
   const [appStatusFilter, setAppStatusFilter] = useState<AppStatusFilter>('pending')
+  const [stampedKeys, setStampedKeys] = useState<Set<string>>(new Set())
 
   const loadApplications = useCallback(async (centerId: number | null, statusFilter: AppStatusFilter) => {
     setApplicationsLoading(true)
@@ -32,6 +38,7 @@ export default function ApplicationTab({ admin, onPendingCountChange }: Props) {
       const effectiveCenterId = admin.role === 'center' ? (admin.center_id ?? null) : centerId
       if (admin.role === 'center' && !admin.center_id) {
         setApplications([])
+        setStampedKeys(new Set())
         return
       }
 
@@ -43,7 +50,28 @@ export default function ApplicationTab({ admin, onPendingCountChange }: Props) {
       if (effectiveCenterId !== null) q = q.eq('center_id', effectiveCenterId)
 
       const { data } = await q
-      setApplications((data ?? []) as ApplicationRow[])
+      const apps = (data ?? []) as ApplicationRow[]
+      setApplications(apps)
+
+      // 스탬프 발급 여부 fetch — 같은 (participant, center) 조합이 stamp_records 에 있는지
+      if (apps.length === 0) {
+        setStampedKeys(new Set())
+        return
+      }
+      const pids = Array.from(new Set(apps.map(a => a.participant_id)))
+      const cids = Array.from(new Set(apps.map(a => a.center_id)))
+      const wanted = new Set(apps.map(a => stampKey(a.participant_id, a.center_id)))
+      const { data: stampRows } = await supabase
+        .from('stamp_records')
+        .select('participant_id, center_id')
+        .in('participant_id', pids)
+        .in('center_id', cids)
+      const next = new Set<string>()
+      ;(stampRows ?? []).forEach((r: any) => {
+        const k = stampKey(r.participant_id, r.center_id)
+        if (wanted.has(k)) next.add(k)
+      })
+      setStampedKeys(next)
     } finally {
       setApplicationsLoading(false)
     }
@@ -178,6 +206,12 @@ export default function ApplicationTab({ admin, onPendingCountChange }: Props) {
         setApplications(prev => prev.filter(a => a.id !== app.id))
       }
 
+      setStampedKeys(prev => {
+        const next = new Set(prev)
+        next.add(stampKey(app.participant_id, app.center_id))
+        return next
+      })
+
       loadPendingCount()
     } catch (e: any) {
       const msg = (e?.message ?? '').toLowerCase()
@@ -185,6 +219,65 @@ export default function ApplicationTab({ admin, onPendingCountChange }: Props) {
         msg.includes('failed to fetch') || msg.includes('network')
           ? '네트워크 오류가 발생했습니다.'
           : '스탬프 발급에 실패했습니다. 다시 시도해주세요.',
+      )
+    } finally {
+      setProcessingAppId(null)
+    }
+  }
+
+  async function handleCancelStamp(app: ApplicationRow) {
+    if (admin.role === 'center' && admin.center_id !== app.center_id) return
+    if (!confirm('정말 스탬프를 취소하시겠습니까?')) return
+
+    setProcessingAppId(app.id)
+    try {
+      // 1) stamp_records 삭제
+      const { error: delErr } = await supabase
+        .from('stamp_records')
+        .delete()
+        .eq('participant_id', app.participant_id)
+        .eq('center_id', app.center_id)
+      if (delErr) throw delErr
+
+      // 2) applications.status 를 approved 로 복구 (취소 후 재발급 가능)
+      await supabase
+        .from('applications')
+        .update({ status: 'approved' })
+        .eq('id', app.id)
+
+      // 3) 참가자에게 푸시 발송 (fire-and-forget)
+      fetch('/api/send-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          participantId: app.participant_id,
+          title: 'B.Y.C.T 스탬프투어',
+          body: `⚠️ ${app.center_name} 스탬프가 취소되었습니다`,
+          tag: `stamp-cancel-${app.id}`,
+          url: '/stamps',
+        }),
+      }).catch((err) => console.warn('[push] 발송 실패:', err))
+
+      // 4) 로컬 상태 갱신
+      setStampedKeys(prev => {
+        const next = new Set(prev)
+        next.delete(stampKey(app.participant_id, app.center_id))
+        return next
+      })
+      if (appStatusFilter === 'all' || appStatusFilter === 'approved') {
+        setApplications(prev =>
+          prev.map(a => (a.id === app.id ? { ...a, status: 'approved' } : a)),
+        )
+      } else {
+        // 현재 필터가 approved 가 아니면 카드는 사라짐
+        setApplications(prev => prev.filter(a => a.id !== app.id))
+      }
+    } catch (e: any) {
+      const msg = (e?.message ?? '').toLowerCase()
+      alert(
+        msg.includes('failed to fetch') || msg.includes('network')
+          ? '네트워크 오류가 발생했습니다.'
+          : '스탬프 취소에 실패했습니다. 다시 시도해주세요.',
       )
     } finally {
       setProcessingAppId(null)
@@ -293,8 +386,12 @@ export default function ApplicationTab({ admin, onPendingCountChange }: Props) {
             {applications.map(app => {
               const org = ORGANIZATIONS.find(o => o.id === app.center_id)
               const processing = processingAppId === app.id
+              const isStamped = stampedKeys.has(stampKey(app.participant_id, app.center_id))
               return (
-                <div key={app.id} className="px-4 py-3.5">
+                <div
+                  key={app.id}
+                  className={`px-4 py-3.5 ${isStamped ? 'bg-green-50 border-l-4 border-green-400' : ''}`}
+                >
                   <div className="flex items-start gap-2.5">
                     {org && <OrgIcon org={org} size={32} rounded="rounded-lg" />}
                     <div className="flex-1 min-w-0">
@@ -313,6 +410,11 @@ export default function ApplicationTab({ admin, onPendingCountChange }: Props) {
                             : app.status === 'rejected' ? '거절됨'
                             : app.status}
                         </span>
+                        {isStamped && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-600 text-white">
+                            🎫 스탬프 발급 완료
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm font-bold text-gray-900 mt-0.5">{app.participant_name}</p>
                       <p className="text-xs text-gray-500 mt-0.5">
@@ -324,45 +426,67 @@ export default function ApplicationTab({ admin, onPendingCountChange }: Props) {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-1.5 mt-3">
-                    <button
-                      onClick={() => handleSetApplicationStatus(app, 'approved')}
-                      disabled={processing}
-                      className="py-2.5 bg-green-600 text-white text-xs font-bold rounded-xl hover:bg-green-700 active:scale-95 transition-all disabled:opacity-50"
-                    >
-                      승인
-                    </button>
-                    <button
-                      onClick={() => handleSetApplicationStatus(app, 'rejected')}
-                      disabled={processing}
-                      className="py-2.5 bg-red-600 text-white text-xs font-bold rounded-xl hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
-                    >
-                      거절
-                    </button>
-                    <button
-                      onClick={() => handleSetApplicationStatus(app, 'waiting')}
-                      disabled={processing}
-                      className="py-2.5 bg-yellow-500 text-white text-xs font-bold rounded-xl hover:bg-yellow-600 active:scale-95 transition-all disabled:opacity-50"
-                    >
-                      대기
-                    </button>
-                  </div>
+                  {/* 스탬프 발급 전: 승인/거절/대기 + 스탬프 찍기 */}
+                  {/* 스탬프 발급 후: 스탬프 취소만 */}
+                  {!isStamped && (
+                    <div className="grid grid-cols-3 gap-1.5 mt-3">
+                      <button
+                        onClick={() => handleSetApplicationStatus(app, 'approved')}
+                        disabled={processing}
+                        className="py-2.5 bg-green-600 text-white text-xs font-bold rounded-xl hover:bg-green-700 active:scale-95 transition-all disabled:opacity-50"
+                      >
+                        승인
+                      </button>
+                      <button
+                        onClick={() => handleSetApplicationStatus(app, 'rejected')}
+                        disabled={processing}
+                        className="py-2.5 bg-red-600 text-white text-xs font-bold rounded-xl hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                      >
+                        거절
+                      </button>
+                      <button
+                        onClick={() => handleSetApplicationStatus(app, 'waiting')}
+                        disabled={processing}
+                        className="py-2.5 bg-yellow-500 text-white text-xs font-bold rounded-xl hover:bg-yellow-600 active:scale-95 transition-all disabled:opacity-50"
+                      >
+                        대기
+                      </button>
+                    </div>
+                  )}
 
-                  <button
-                    onClick={() => handleIssueStamp(app)}
-                    disabled={processing}
-                    className="w-full mt-1.5 flex items-center justify-center gap-1.5 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50"
-                  >
-                    {processing ? (
-                      <>
-                        <RefreshCw size={14} className="animate-spin" /> 처리 중...
-                      </>
-                    ) : (
-                      <>
-                        <Stamp size={14} /> 스탬프 찍기
-                      </>
-                    )}
-                  </button>
+                  {isStamped ? (
+                    <button
+                      onClick={() => handleCancelStamp(app)}
+                      disabled={processing}
+                      className="w-full mt-3 flex items-center justify-center gap-1.5 py-2.5 bg-red-600 text-white text-sm font-bold rounded-xl hover:bg-red-700 active:scale-95 transition-all disabled:opacity-50"
+                    >
+                      {processing ? (
+                        <>
+                          <RefreshCw size={14} className="animate-spin" /> 처리 중...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 size={14} /> 스탬프 취소
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleIssueStamp(app)}
+                      disabled={processing}
+                      className="w-full mt-1.5 flex items-center justify-center gap-1.5 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50"
+                    >
+                      {processing ? (
+                        <>
+                          <RefreshCw size={14} className="animate-spin" /> 처리 중...
+                        </>
+                      ) : (
+                        <>
+                          <Stamp size={14} /> 스탬프 찍기
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               )
             })}
