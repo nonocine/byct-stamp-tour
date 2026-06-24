@@ -7,10 +7,12 @@ interface Props {
   organizations: Organization[]
   stampedOrgIds: Set<number>
   reviewedOrgIds?: Set<number>
+  /** 스탬프가 없어도 평가 작성이 가능한 기관(승인된 신청 등) */
+  reviewableOrgIds?: Set<number>
   onSelect?: (org: Organization, collected: boolean) => void
 }
 
-export default function StampGrid({ organizations, stampedOrgIds, reviewedOrgIds, onSelect }: Props) {
+export default function StampGrid({ organizations, stampedOrgIds, reviewedOrgIds, reviewableOrgIds, onSelect }: Props) {
   const { logos } = useOrgLogos()
 
   return (
@@ -18,6 +20,7 @@ export default function StampGrid({ organizations, stampedOrgIds, reviewedOrgIds
       {organizations.map(org => {
         const collected = stampedOrgIds.has(org.id)
         const reviewed = reviewedOrgIds?.has(org.id) ?? false
+        const selectable = collected || (reviewableOrgIds?.has(org.id) ?? false)
         const clickable = !!onSelect
         const logoUrl = logos[org.id] ?? org.logo
 
@@ -25,9 +28,9 @@ export default function StampGrid({ organizations, stampedOrgIds, reviewedOrgIds
         const wrapperProps = clickable
           ? {
               type: 'button',
-              disabled: !collected,
+              disabled: !selectable,
               onClick: () => onSelect?.(org, collected),
-              className: `flex flex-col items-center gap-1.5 ${collected ? 'cursor-pointer active:scale-95 transition-transform' : 'cursor-not-allowed opacity-100'}`,
+              className: `flex flex-col items-center gap-1.5 ${selectable ? 'cursor-pointer active:scale-95 transition-transform' : 'cursor-not-allowed opacity-100'}`,
             }
           : { className: 'flex flex-col items-center gap-1.5' }
 
@@ -106,7 +109,7 @@ export default function StampGrid({ organizations, stampedOrgIds, reviewedOrgIds
             >
               {org.name.length > 6 ? org.name.slice(0, 6) + '…' : org.name}
             </p>
-            {clickable && collected && (
+            {clickable && selectable && (
               <p className="text-[10px] text-amber-600 font-semibold leading-none">
                 {reviewed ? '평가 완료' : '평가하기'}
               </p>

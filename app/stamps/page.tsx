@@ -31,6 +31,7 @@ export default function StampsPage() {
   const { profile, loading } = useAuth()
   const [records, setRecords] = useState<StampRecord[]>([])
   const [reviews, setReviews] = useState<ReviewRecord[]>([])
+  const [approvedOrgIds, setApprovedOrgIds] = useState<Set<number>>(new Set())
   const [fetching, setFetching] = useState(false)
   const [reviewOrg, setReviewOrg] = useState<Organization | null>(null)
   const [generating, setGenerating] = useState(false)
@@ -44,7 +45,7 @@ export default function StampsPage() {
   async function fetchAll() {
     if (!profile) return
     setFetching(true)
-    const [stampsRes, reviewsRes] = await Promise.all([
+    const [stampsRes, reviewsRes, appsRes] = await Promise.all([
       supabase
         .from('stamp_records')
         .select('id, center_id, center_name, approved_by, stamped_at')
@@ -54,14 +55,21 @@ export default function StampsPage() {
         .from('reviews')
         .select('id, center_id, rating, comment')
         .eq('participant_id', profile.id),
+      supabase
+        .from('applications')
+        .select('center_id')
+        .eq('participant_id', profile.id)
+        .eq('status', 'approved'),
     ])
     setRecords(stampsRes.data ?? [])
     setReviews(reviewsRes.data ?? [])
+    setApprovedOrgIds(new Set((appsRes.data ?? []).map((a: any) => a.center_id)))
     setFetching(false)
   }
 
   function handleSelectOrg(org: Organization, collected: boolean) {
-    if (!collected) return
+    // 스탬프가 없어도 승인된 신청이 있으면 평가 작성 가능
+    if (!collected && !approvedOrgIds.has(org.id)) return
     setReviewOrg(org)
   }
 
@@ -238,6 +246,7 @@ export default function StampsPage() {
             organizations={ORGANIZATIONS}
             stampedOrgIds={stampedOrgIds}
             reviewedOrgIds={reviewedOrgIds}
+            reviewableOrgIds={approvedOrgIds}
             onSelect={handleSelectOrg}
           />
         )}
