@@ -160,8 +160,8 @@ export default function HomePage() {
             </div>
 
             {/* 참여 안내 */}
-            <div className="mt-3 flex items-start gap-1.5 text-xs text-gray-500">
-              <Info size={13} className="flex-shrink-0 mt-0.5" />
+            <div className="mt-3 flex items-start gap-1.5 text-xs text-orange-500 bg-orange-50 border border-orange-200 rounded-lg p-3">
+              <Info size={13} className="flex-shrink-0 mt-0.5 text-orange-500" />
               <p>스탬프투어는 기관당 1개 프로그램만 참여 가능합니다. 동일 기관 중복 신청 및 중복 스탬프 발급은 불가합니다.</p>
             </div>
           </div>

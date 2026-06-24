@@ -20,6 +20,7 @@
     "pdfjs-dist": "^5.7.284",
     "react": "^18",
     "react-dom": "^18",
+    "recharts": "^3.9.0",
     "web-push": "^3.6.7",
     "xlsx": "^0.18.5"
   },

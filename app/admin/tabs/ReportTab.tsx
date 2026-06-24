@@ -379,6 +379,7 @@ export default function ReportTab({ admin }: Props) {
             : (reportScope === 'center' ? (reportCenterId ?? undefined) : undefined)
         }
         createdBy={admin.name}
+        canEditOpinion={admin.role === 'center'}
         externalMarkdown={loadedReport?.markdown ?? null}
         externalMarkdownKey={loadedReport?.key ?? null}
       />

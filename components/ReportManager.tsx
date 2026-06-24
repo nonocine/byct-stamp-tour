@@ -6,6 +6,8 @@ import { generateCenterReport, generateGlobalReport } from '@/lib/reportGenerato
 import { downloadReportAsDocx } from '@/lib/reportDocx'
 import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS } from '@/lib/data'
+import SatisfactionChart, { type SatisfactionData } from '@/components/SatisfactionChart'
+import CenterOpinionSection from '@/components/CenterOpinionSection'
 
 type Scope = 'center' | 'global'
 type Status = 'idle' | 'collecting' | 'ready' | 'error'
@@ -15,6 +17,8 @@ interface Props {
   scope: Scope
   centerId?: number
   createdBy: string
+  /** 기관 관리자(담당지도자) 여부 — 종합의견 편집 가능 */
+  canEditOpinion?: boolean
   /** 외부에서 주입할 마크다운(저장된 보고서 불러오기 등). 비어있으면 무시. */
   externalMarkdown?: string | null
   /** externalMarkdown 변경 감지용 키. 이 값이 바뀌면 외부 마크다운으로 상태가 교체됨. */
@@ -100,6 +104,7 @@ export default function ReportManager({
   scope,
   centerId,
   createdBy,
+  canEditOpinion = false,
   externalMarkdown,
   externalMarkdownKey,
 }: Props) {
@@ -110,6 +115,7 @@ export default function ReportManager({
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
+  const [satisfaction, setSatisfaction] = useState<SatisfactionData | null>(null)
 
   // 외부 주입 마크다운 — key 변경 시 내부 상태 교체
   useEffect(() => {
@@ -119,6 +125,7 @@ export default function ReportManager({
       setStatus('ready')
       setError('')
       setSavedAt(null)
+      setSatisfaction(null) // 저장본 불러오기 시 차트 데이터 없음
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalMarkdownKey])
@@ -132,10 +139,20 @@ export default function ReportManager({
       if (scope === 'global') {
         const data = await collectGlobalReportData()
         md = generateGlobalReport(data)
+        setSatisfaction({
+          programAvg: data.satisfaction.programAvg,
+          leaderAvg: data.satisfaction.leaderAvg,
+          facilityAvg: data.satisfaction.facilityAvg,
+        })
       } else {
         if (!centerId) throw new Error('기관이 선택되지 않았습니다.')
         const data = await collectCenterReportData(centerId)
         md = generateCenterReport(data)
+        setSatisfaction({
+          programAvg: data.satisfaction.programAvg,
+          leaderAvg: data.satisfaction.leaderAvg,
+          facilityAvg: data.satisfaction.facilityAvg,
+        })
       }
       setMarkdown(md)
       setView('preview')
@@ -272,6 +289,10 @@ export default function ReportManager({
         </div>
       )}
 
+      {status === 'ready' && satisfaction && (
+        <SatisfactionChart data={satisfaction} />
+      )}
+
       {status === 'ready' && view === 'preview' && (
         <div
           className="report-preview bg-white rounded-2xl border border-gray-200 px-6 py-6 max-w-none print:border-0 print:p-0"
@@ -286,6 +307,10 @@ export default function ReportManager({
           className="w-full min-h-[600px] p-4 font-mono text-xs bg-gray-50 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 no-print"
           spellCheck={false}
         />
+      )}
+
+      {scope === 'center' && centerId && (
+        <CenterOpinionSection centerId={centerId} canEdit={canEditOpinion} />
       )}
 
       <style jsx global>{`

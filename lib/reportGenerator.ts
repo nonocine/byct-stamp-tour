@@ -57,6 +57,12 @@ ${data.programs
         .join('\n')
     : '> 한줄평이 없습니다.'
 
+  const fmtScore = (n: number | null) => (n !== null ? `⭐ ${n.toFixed(1)} / 5.0` : '평가 없음')
+
+  const wishesBlock = data.satisfaction.wishes.length > 0
+    ? data.satisfaction.wishes.map(w => `- ${w}`).join('\n')
+    : '> 제안된 희망 프로그램이 없습니다.'
+
   const timelineBlock = data.timeline.length > 0
     ? `| 일자 | 신청 | 스탬프 |
 | --- | --- | --- |
@@ -108,14 +114,24 @@ ${ageDistRows(data.ageGroups)}
 
 ## 6. 만족도
 
-- 평균 별점: **${data.satisfaction.avg !== null ? `⭐ ${data.satisfaction.avg.toFixed(1)} / 5.0` : '평가 없음'}**
 - 누적 평가 수: ${fmtNum(data.satisfaction.count)}건
+
+| 항목 | 평균 점수 |
+| --- | --- |
+| 프로그램 만족도 | ${fmtScore(data.satisfaction.programAvg)} |
+| 지도자 만족도 | ${fmtScore(data.satisfaction.leaderAvg)} |
+| 시설 만족도 | ${fmtScore(data.satisfaction.facilityAvg)} |
+| **종합 평균** | **${fmtScore(data.satisfaction.avg)}** |
 
 > ${satisfactionComment(data.satisfaction.avg)}
 
 ### 한줄평 (최신 ${data.satisfaction.comments.length}건)
 
 ${commentsBlock}
+
+### 희망 프로그램
+
+${wishesBlock}
 
 ## 7. 일자별 추이 (최근 ${data.timeline.length}일)
 
@@ -126,6 +142,10 @@ ${timelineBlock}
 - 참여율 ${fmtPct(data.participation.rate)}: ${participationComment(data.participation.rate).replace(/\*\*/g, '')}
 - 만족도 ${data.satisfaction.avg !== null ? `${data.satisfaction.avg.toFixed(1)}점` : '평가 없음'}: ${satisfactionComment(data.satisfaction.avg).replace(/\*\*/g, '')}
 - 차회 운영 시 참고할 점: 한줄평 상위 항목을 검토하여 운영에 반영해주세요.
+
+### 담당지도자 종합의견
+
+${data.leaderOpinion ? `> ${data.leaderOpinion.replace(/\n/g, '\n> ')}` : '> 작성된 종합의견이 없습니다.'}
 `
 }
 
@@ -201,6 +221,12 @@ ${centerSummaryTable}
 ${topStampsTable}
 
 ## 4. 만족도 순위 (Top ${topRating.length})
+
+| 항목 | 전체 평균 점수 |
+| --- | --- |
+| 프로그램 만족도 | ${data.satisfaction.programAvg !== null ? `⭐ ${data.satisfaction.programAvg.toFixed(1)} / 5.0` : '평가 없음'} |
+| 지도자 만족도 | ${data.satisfaction.leaderAvg !== null ? `⭐ ${data.satisfaction.leaderAvg.toFixed(1)} / 5.0` : '평가 없음'} |
+| 시설 만족도 | ${data.satisfaction.facilityAvg !== null ? `⭐ ${data.satisfaction.facilityAvg.toFixed(1)} / 5.0` : '평가 없음'} |
 
 ${topRatingTable}
 

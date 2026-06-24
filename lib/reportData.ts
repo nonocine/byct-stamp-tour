@@ -49,8 +49,14 @@ export interface CenterReportData {
   satisfaction: {
     avg: number | null
     count: number
+    programAvg: number | null
+    leaderAvg: number | null
+    facilityAvg: number | null
     comments: { rating: number; comment: string; name?: string }[]
+    wishes: string[]
   }
+  /** 담당지도자가 작성한 종합의견 (center_reports) */
+  leaderOpinion: string | null
   timeline: {
     date: string
     applications: number
@@ -84,6 +90,12 @@ export interface GlobalReportData {
     uniqueParticipants: number
   }
   participation: { rate: number }
+  satisfaction: {
+    programAvg: number | null
+    leaderAvg: number | null
+    facilityAvg: number | null
+    count: number
+  }
   centerRankings: {
     byStamps: CenterRanking[]
     byRating: CenterRatingRanking[]
@@ -181,10 +193,23 @@ export async function collectCenterReportData(centerId: number): Promise<CenterR
       .eq('center_id', centerId),
     supabase
       .from('reviews')
-      .select('rating, comment, participant_name, created_at')
+      .select('rating, comment, participant_name, program_rating, leader_rating, facility_rating, wish_program, created_at')
       .eq('center_id', centerId)
       .order('created_at', { ascending: false }),
   ])
+
+  // 담당지도자 종합의견 (테이블 미생성 등으로 실패해도 보고서 생성은 계속)
+  let leaderOpinion: string | null = null
+  try {
+    const { data: opinionRow } = await supabase
+      .from('center_reports')
+      .select('opinion')
+      .eq('center_id', centerId)
+      .maybeSingle()
+    leaderOpinion = (opinionRow?.opinion as string | undefined)?.trim() || null
+  } catch {
+    leaderOpinion = null
+  }
 
   const programs: ProgramSummary[] = (progRes.data ?? []).map((p: any) => ({
     id: p.id,
@@ -231,10 +256,15 @@ export async function collectCenterReportData(centerId: number): Promise<CenterR
   const ageGroups = countAgeGroups(profiles.map(p => p.birthdate))
 
   // 만족도
-  const ratings = reviews.map(r => r.rating).filter((n: any) => typeof n === 'number')
-  const avg = ratings.length > 0
-    ? ratings.reduce((a: number, b: number) => a + b, 0) / ratings.length
-    : null
+  const avgOf = (key: string): number | null => {
+    const nums = reviews.map(r => r[key]).filter((n: any) => typeof n === 'number')
+    if (nums.length === 0) return null
+    return Math.round((nums.reduce((a: number, b: number) => a + b, 0) / nums.length) * 10) / 10
+  }
+  const avg = avgOf('rating')
+  const programAvg = avgOf('program_rating')
+  const leaderAvg = avgOf('leader_rating')
+  const facilityAvg = avgOf('facility_rating')
   const comments = reviews
     .filter(r => r.comment && String(r.comment).trim())
     .slice(0, 20)
@@ -243,6 +273,10 @@ export async function collectCenterReportData(centerId: number): Promise<CenterR
       comment: r.comment as string,
       name: r.participant_name as string | undefined,
     }))
+  const wishes = reviews
+    .map(r => (r.wish_program ? String(r.wish_program).trim() : ''))
+    .filter(Boolean)
+    .slice(0, 20)
 
   return {
     generatedAt: new Date().toISOString(),
@@ -259,10 +293,15 @@ export async function collectCenterReportData(centerId: number): Promise<CenterR
     participation: { rate: Math.round(rate * 10) / 10 },
     ageGroups,
     satisfaction: {
-      avg: avg !== null ? Math.round(avg * 10) / 10 : null,
+      avg,
       count: reviews.length,
+      programAvg,
+      leaderAvg,
+      facilityAvg,
       comments,
+      wishes,
     },
+    leaderOpinion,
     timeline: buildTimeline(apps, stamps),
   }
 }
@@ -274,7 +313,7 @@ export async function collectGlobalReportData(): Promise<GlobalReportData> {
     supabase.from('programs').select('id, organization_id'),
     supabase.from('applications').select('id, status, center_id, participant_id'),
     supabase.from('stamp_records').select('id, center_id, participant_id'),
-    supabase.from('reviews').select('center_id, rating'),
+    supabase.from('reviews').select('center_id, rating, program_rating, leader_rating, facility_rating'),
     supabase.from('profiles').select('id, birthdate'),
     supabase
       .from('global_plans')
@@ -363,10 +402,24 @@ export async function collectGlobalReportData(): Promise<GlobalReportData> {
 
   const ageGroups = countAgeGroups(profiles.map(p => p.birthdate))
 
+  // 전체 항목별 만족도 평균
+  const overallAvgOf = (key: string): number | null => {
+    const nums = reviews.map(r => r[key]).filter((n: any) => typeof n === 'number')
+    if (nums.length === 0) return null
+    return Math.round((nums.reduce((a: number, b: number) => a + b, 0) / nums.length) * 10) / 10
+  }
+  const satisfaction = {
+    programAvg: overallAvgOf('program_rating'),
+    leaderAvg: overallAvgOf('leader_rating'),
+    facilityAvg: overallAvgOf('facility_rating'),
+    count: reviews.length,
+  }
+
   return {
     generatedAt: new Date().toISOString(),
     totals,
     participation: { rate: Math.round(rate * 10) / 10 },
+    satisfaction,
     centerRankings: { byStamps, byRating },
     centerSummary,
     ageGroups,

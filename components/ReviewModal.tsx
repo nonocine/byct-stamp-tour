@@ -9,6 +9,10 @@ interface ExistingReview {
   id: string
   rating: number
   comment: string | null
+  program_rating: number | null
+  leader_rating: number | null
+  facility_rating: number | null
+  wish_program: string | null
   created_at?: string | null
 }
 
@@ -20,9 +24,49 @@ interface Props {
   onSaved?: () => void
 }
 
-export default function ReviewModal({ open, onClose, org, participant, onSaved }: Props) {
-  const [rating, setRating] = useState(0)
+// 별점 입력 한 줄
+function StarRow({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: number
+  onChange: (n: number) => void
+}) {
   const [hover, setHover] = useState(0)
+  const display = hover || value
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-sm font-semibold text-gray-700">
+        {label} <span className="text-red-500">*</span>
+      </span>
+      <div className="flex items-center gap-0.5" onMouseLeave={() => setHover(0)}>
+        {[1, 2, 3, 4, 5].map(n => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => onChange(n)}
+            onMouseEnter={() => setHover(n)}
+            className="p-0.5 transition-transform active:scale-90"
+          >
+            <Star
+              size={26}
+              strokeWidth={1.5}
+              className={n <= display ? 'text-amber-400 fill-amber-400' : 'text-gray-300'}
+            />
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export default function ReviewModal({ open, onClose, org, participant, onSaved }: Props) {
+  const [programRating, setProgramRating] = useState(0)
+  const [leaderRating, setLeaderRating] = useState(0)
+  const [facilityRating, setFacilityRating] = useState(0)
+  const [wishProgram, setWishProgram] = useState('')
   const [comment, setComment] = useState('')
   const [existing, setExisting] = useState<ExistingReview | null>(null)
   const [loading, setLoading] = useState(false)
@@ -32,7 +76,6 @@ export default function ReviewModal({ open, onClose, org, participant, onSaved }
   useEffect(() => {
     if (!open) return
     setError('')
-    setHover(0)
     loadReview()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, org.id, participant.id])
@@ -42,17 +85,24 @@ export default function ReviewModal({ open, onClose, org, participant, onSaved }
     try {
       const { data } = await supabase
         .from('reviews')
-        .select('id, rating, comment, created_at')
+        .select('id, rating, comment, program_rating, leader_rating, facility_rating, wish_program, created_at')
         .eq('participant_id', participant.id)
         .eq('center_id', org.id)
         .maybeSingle()
       if (data) {
         setExisting(data)
-        setRating(data.rating)
+        // 신규 항목이 있으면 그대로, 없으면(구버전 데이터) 기존 rating으로 채움
+        setProgramRating(data.program_rating ?? data.rating ?? 0)
+        setLeaderRating(data.leader_rating ?? data.rating ?? 0)
+        setFacilityRating(data.facility_rating ?? data.rating ?? 0)
+        setWishProgram(data.wish_program ?? '')
         setComment(data.comment ?? '')
       } else {
         setExisting(null)
-        setRating(0)
+        setProgramRating(0)
+        setLeaderRating(0)
+        setFacilityRating(0)
+        setWishProgram('')
         setComment('')
       }
     } finally {
@@ -60,20 +110,28 @@ export default function ReviewModal({ open, onClose, org, participant, onSaved }
     }
   }
 
+  const allRated = programRating >= 1 && leaderRating >= 1 && facilityRating >= 1
+
   async function handleSave() {
-    if (rating < 1 || rating > 5) {
-      setError('별점을 선택해주세요 (1~5점)')
+    if (!allRated) {
+      setError('프로그램·지도자·시설 만족도를 모두 선택해주세요 (1~5점)')
       return
     }
     setSaving(true)
     setError('')
     try {
+      // 세 항목 평균을 기존 rating(정수)으로 자동 계산
+      const rating = Math.round((programRating + leaderRating + facilityRating) / 3)
       const payload = {
         participant_id: participant.id,
         participant_name: participant.name,
         center_id: org.id,
         center_name: org.name,
         rating,
+        program_rating: programRating,
+        leader_rating: leaderRating,
+        facility_rating: facilityRating,
+        wish_program: wishProgram.trim() || null,
         comment: comment.trim() || null,
       }
       const { error: upsertErr } = await supabase
@@ -118,8 +176,6 @@ export default function ReviewModal({ open, onClose, org, participant, onSaved }
 
   if (!open) return null
 
-  const display = hover || rating
-
   return (
     <div
       className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4"
@@ -153,43 +209,34 @@ export default function ReviewModal({ open, onClose, org, participant, onSaved }
           </div>
         ) : (
           <>
-            {/* 별점 */}
-            <div className="px-5 py-5">
-              <p className="text-sm font-semibold text-gray-700 mb-3 text-center">이 기관의 체험을 평가해주세요</p>
-              <div className="flex items-center justify-center gap-1.5">
-                {[1, 2, 3, 4, 5].map(n => {
-                  const filled = n <= display
-                  return (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => setRating(n)}
-                      onMouseEnter={() => setHover(n)}
-                      onMouseLeave={() => setHover(0)}
-                      className="p-1 transition-transform active:scale-90"
-                    >
-                      <Star
-                        size={36}
-                        strokeWidth={1.5}
-                        className={filled ? 'text-amber-400 fill-amber-400' : 'text-gray-300'}
-                      />
-                    </button>
-                  )
-                })}
-              </div>
-              <p className="text-xs text-center text-gray-500 mt-2 h-4">
-                {display > 0 ? `${display}점 / 5점` : ' '}
-              </p>
+            {/* 항목별 만족도 */}
+            <div className="px-5 py-5 space-y-4">
+              <p className="text-sm font-semibold text-gray-700 text-center mb-1">이 기관의 체험을 평가해주세요</p>
+              <StarRow label="프로그램 만족도" value={programRating} onChange={setProgramRating} />
+              <StarRow label="지도자 만족도" value={leaderRating} onChange={setLeaderRating} />
+              <StarRow label="시설 만족도" value={facilityRating} onChange={setFacilityRating} />
+            </div>
+
+            {/* 희망 프로그램 */}
+            <div className="px-5 pb-2">
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">앞으로 생겼으면 하는 프로그램 (선택)</label>
+              <input
+                type="text"
+                value={wishProgram}
+                onChange={e => setWishProgram(e.target.value.slice(0, 200))}
+                placeholder="예: 진로 체험, 코딩 캠프 등"
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-800"
+              />
             </div>
 
             {/* 한줄평 */}
             <div className="px-5 pb-2">
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5">한줄 평가</label>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">한줄 평가 (선택)</label>
               <textarea
                 value={comment}
                 onChange={e => setComment(e.target.value.slice(0, 200))}
                 rows={3}
-                placeholder="체험 경험을 짧게 적어주세요 (선택)"
+                placeholder="체험 경험을 짧게 적어주세요"
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-800 resize-none"
               />
               <p className="text-right text-xs text-gray-400 mt-1">{comment.length}/200</p>
@@ -222,7 +269,7 @@ export default function ReviewModal({ open, onClose, org, participant, onSaved }
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || rating < 1}
+                disabled={saving || !allRated}
                 className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50"
               >
                 <Save size={14} />
