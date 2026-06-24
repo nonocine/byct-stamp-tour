@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import {
-  Phone, Search, RefreshCw, XCircle, CheckCircle, UserCheck, Stamp, Trash2,
+  Phone, Search, RefreshCw, XCircle, CheckCircle, UserCheck, Stamp, Trash2, Clock,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS } from '@/lib/data'
@@ -26,6 +26,7 @@ export default function StampTab({ admin }: Props) {
   const [alreadyStamped, setAlreadyStamped] = useState(false)
   const [existingStampId, setExistingStampId] = useState<string | null>(null)
   const [existingStampDate, setExistingStampDate] = useState<string | null>(null)
+  const [hasReview, setHasReview] = useState(false)
   const [searchError, setSearchError] = useState('')
   const [searching, setSearching] = useState(false)
   const [stamping, setStamping] = useState(false)
@@ -68,10 +69,22 @@ export default function StampTab({ admin }: Props) {
     setExistingStampDate(data?.stamped_at ?? null)
   }
 
+  // 해당 참가자가 해당 기관에 만족도 평가를 완료했는지 확인
+  async function checkReview(profileId: string, orgId: number) {
+    const { data } = await supabase
+      .from('reviews')
+      .select('id')
+      .eq('participant_id', profileId)
+      .eq('center_id', orgId)
+      .maybeSingle()
+    setHasReview(!!data)
+  }
+
   function resetStampStatus() {
     setAlreadyStamped(false)
     setExistingStampId(null)
     setExistingStampDate(null)
+    setHasReview(false)
     setStampSuccess(false)
     setCancelSuccess(false)
   }
@@ -92,8 +105,14 @@ export default function StampTab({ admin }: Props) {
       if (error) throw error
       if (!profile) { setSearchError('해당 전화번호로 등록된 참여자가 없습니다'); return }
       setFoundProfile(profile)
-      if (admin.role === 'center' && admin.center_id) await checkDuplicate(profile.id, admin.center_id)
-      if (admin.role === 'super' && selectedOrgId) await checkDuplicate(profile.id, selectedOrgId)
+      if (admin.role === 'center' && admin.center_id) {
+        await checkDuplicate(profile.id, admin.center_id)
+        await checkReview(profile.id, admin.center_id)
+      }
+      if (admin.role === 'super' && selectedOrgId) {
+        await checkDuplicate(profile.id, selectedOrgId)
+        await checkReview(profile.id, selectedOrgId)
+      }
     } catch (e: any) {
       setSearchError(e.message ?? '오류가 발생했습니다')
     } finally {
@@ -104,13 +123,21 @@ export default function StampTab({ admin }: Props) {
   async function handleOrgSelect(orgId: number) {
     setSelectedOrgId(orgId)
     resetStampStatus()
-    if (foundProfile) await checkDuplicate(foundProfile.id, orgId)
+    if (foundProfile) {
+      await checkDuplicate(foundProfile.id, orgId)
+      await checkReview(foundProfile.id, orgId)
+    }
   }
 
   async function handleStamp() {
     if (!foundProfile || !selectedOrgId) return
     const org = ORGANIZATIONS.find(o => o.id === selectedOrgId)
     if (!org) return
+    // 만족도 평가 완료 여부 확인 — 미완료 시 발급 차단
+    if (!hasReview) {
+      alert('해당 참가자가 아직 만족도 평가를 완료하지 않았습니다.')
+      return
+    }
     setStamping(true)
     setSearchError('')
     try {
@@ -372,10 +399,21 @@ export default function StampTab({ admin }: Props) {
                     </button>
                   </>
                 ) : (
-                  <button onClick={handleStamp} disabled={stamping} className="w-full py-4 bg-blue-600 text-white font-bold text-base rounded-2xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                    <Stamp size={18} />
-                    {stamping ? '발급 중...' : '스탬프 발급'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold flex-shrink-0 ${
+                        hasReview ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'
+                      }`}
+                      title={hasReview ? '만족도 평가 완료' : '만족도 평가 미완료'}
+                    >
+                      {hasReview ? <CheckCircle size={15} /> : <Clock size={15} />}
+                      {hasReview ? '평가 완료' : '평가 미완료'}
+                    </span>
+                    <button onClick={handleStamp} disabled={stamping} className="flex-1 py-4 bg-blue-600 text-white font-bold text-base rounded-2xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                      <Stamp size={18} />
+                      {stamping ? '발급 중...' : '스탬프 발급'}
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
