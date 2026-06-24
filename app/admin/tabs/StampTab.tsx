@@ -27,6 +27,7 @@ export default function StampTab({ admin }: Props) {
   const [existingStampId, setExistingStampId] = useState<string | null>(null)
   const [existingStampDate, setExistingStampDate] = useState<string | null>(null)
   const [hasReview, setHasReview] = useState(false)
+  const [recheckingReview, setRecheckingReview] = useState(false)
   const [searchError, setSearchError] = useState('')
   const [searching, setSearching] = useState(false)
   const [stamping, setStamping] = useState(false)
@@ -78,6 +79,19 @@ export default function StampTab({ admin }: Props) {
       .eq('center_id', orgId)
       .maybeSingle()
     setHasReview(!!data)
+  }
+
+  // 평가 완료 여부 다시 확인 — 참가자가 검색 이후 평가를 작성한 경우 반영
+  async function recheckReview() {
+    if (!foundProfile) return
+    const orgId = admin.role === 'center' ? admin.center_id : selectedOrgId
+    if (!orgId) return
+    setRecheckingReview(true)
+    try {
+      await checkReview(foundProfile.id, orgId)
+    } finally {
+      setRecheckingReview(false)
+    }
   }
 
   function resetStampStatus() {
@@ -425,15 +439,26 @@ export default function StampTab({ admin }: Props) {
                       </button>
                     </div>
                     {!hasReview && (
-                      <a
-                        href="/stamps"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-1.5 w-full py-2.5 bg-orange-50 text-orange-600 border border-orange-200 font-semibold text-xs rounded-xl hover:bg-orange-100 active:scale-95 transition-all"
-                      >
-                        <ExternalLink size={13} />
-                        참가자 평가 작성 화면으로 이동
-                      </a>
+                      <div className="flex gap-2">
+                        <a
+                          href="/stamps"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-orange-50 text-orange-600 border border-orange-200 font-semibold text-xs rounded-xl hover:bg-orange-100 active:scale-95 transition-all"
+                        >
+                          <ExternalLink size={13} />
+                          참가자 평가 작성 화면으로 이동
+                        </a>
+                        <button
+                          onClick={recheckReview}
+                          disabled={recheckingReview}
+                          className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-gray-100 text-gray-600 font-semibold text-xs rounded-xl hover:bg-gray-200 active:scale-95 transition-all disabled:opacity-50"
+                          title="평가 완료 여부 다시 확인"
+                        >
+                          <RefreshCw size={13} className={recheckingReview ? 'animate-spin' : ''} />
+                          평가 확인
+                        </button>
+                      </div>
                     )}
                   </>
                 )}
