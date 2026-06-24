@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import {
-  Phone, Search, RefreshCw, XCircle, CheckCircle, UserCheck, Stamp, Trash2, Clock,
+  Phone, Search, RefreshCw, XCircle, CheckCircle, UserCheck, Stamp, Trash2, Clock, ExternalLink,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS } from '@/lib/data'
@@ -408,21 +408,34 @@ export default function StampTab({ admin }: Props) {
                     </button>
                   </>
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold flex-shrink-0 ${
-                        hasReview ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'
-                      }`}
-                      title={hasReview ? '만족도 평가 완료' : '만족도 평가 미완료'}
-                    >
-                      {hasReview ? <CheckCircle size={15} /> : <Clock size={15} />}
-                      {hasReview ? '평가 완료' : '평가 미완료'}
-                    </span>
-                    <button onClick={handleStamp} disabled={stamping || !hasReview} className="flex-1 py-4 bg-blue-600 text-white font-bold text-base rounded-2xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-                      <Stamp size={18} />
-                      {stamping ? '발급 중...' : '스탬프 발급'}
-                    </button>
-                  </div>
+                  <>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold flex-shrink-0 ${
+                          hasReview ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'
+                        }`}
+                        title={hasReview ? '만족도 평가 완료' : '만족도 평가 미완료'}
+                      >
+                        {hasReview ? <CheckCircle size={15} /> : <Clock size={15} />}
+                        {hasReview ? '평가 완료' : '평가 미완료'}
+                      </span>
+                      <button onClick={handleStamp} disabled={stamping || !hasReview} className="flex-1 py-4 bg-blue-600 text-white font-bold text-base rounded-2xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                        <Stamp size={18} />
+                        {stamping ? '발급 중...' : '스탬프 발급'}
+                      </button>
+                    </div>
+                    {!hasReview && (
+                      <a
+                        href="/stamps"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-1.5 w-full py-2.5 bg-orange-50 text-orange-600 border border-orange-200 font-semibold text-xs rounded-xl hover:bg-orange-100 active:scale-95 transition-all"
+                      >
+                        <ExternalLink size={13} />
+                        참가자 평가 작성 화면으로 이동
+                      </a>
+                    )}
+                  </>
                 )}
               </div>
             </div>
