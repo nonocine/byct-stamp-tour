@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { MapPin, Calendar, Award, ChevronRight, Stamp } from 'lucide-react'
+import { MapPin, Calendar, Award, ChevronRight, Stamp, Info } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS } from '@/lib/data'
 import OrgIcon from '@/components/OrgIcon'
@@ -157,6 +157,12 @@ export default function HomePage() {
             {/* 알림 구독 */}
             <div className="mt-3">
               <PushNotificationButton />
+            </div>
+
+            {/* 참여 안내 */}
+            <div className="mt-3 flex items-start gap-1.5 text-xs text-gray-500">
+              <Info size={13} className="flex-shrink-0 mt-0.5" />
+              <p>스탬프투어는 기관당 1개 프로그램만 참여 가능합니다. 동일 기관 중복 신청 및 중복 스탬프 발급은 불가합니다.</p>
             </div>
           </div>
         ) : (

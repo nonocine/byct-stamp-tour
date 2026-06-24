@@ -1,6 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
-import { BarChart3, Users, Stamp, TrendingUp, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react'
+import { BarChart3, Users, Stamp, TrendingUp, RefreshCw, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS } from '@/lib/data'
 import OrgIcon from '@/components/OrgIcon'
@@ -26,6 +26,73 @@ export default function DashboardTab({ admin }: Props) {
   const [dashTotal, setDashTotal] = useState(0)
   const [ranking, setRanking] = useState<{ id: string; name: string; phoneSuffix: string; count: number }[]>([])
   const [rankLoading, setRankLoading] = useState(false)
+
+  // 기관별 스탬프 현황 아코디언
+  type CenterParticipant = { id: string; name: string; phone: string; totalStamps: number; stampedAt: string }
+  const [expandedCenter, setExpandedCenter] = useState<number | null>(null)
+  const [centerLoading, setCenterLoading] = useState<number | null>(null)
+  const [centerParticipants, setCenterParticipants] = useState<Record<number, CenterParticipant[]>>({})
+
+  async function toggleCenter(centerId: number) {
+    if (expandedCenter === centerId) { setExpandedCenter(null); return }
+    setExpandedCenter(centerId)
+    if (centerParticipants[centerId]) return // 캐시됨
+
+    setCenterLoading(centerId)
+    try {
+      // 해당 기관에서 발급된 스탬프 기록
+      const { data: stamps } = await supabase
+        .from('stamp_records')
+        .select('participant_id, stamped_at')
+        .eq('center_id', centerId)
+        .order('stamped_at', { ascending: false })
+      const records = (stamps ?? []) as { participant_id: string; stamped_at: string }[]
+      const pids = Array.from(new Set(records.map(r => r.participant_id).filter(Boolean)))
+      if (pids.length === 0) {
+        setCenterParticipants(prev => ({ ...prev, [centerId]: [] }))
+        return
+      }
+
+      // profiles 조인 — 이름/전화번호
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, name, phone')
+        .in('id', pids)
+      const profileMap: Record<string, { name: string; phone: string }> = {}
+      ;(profiles ?? []).forEach((p: any) => { profileMap[p.id] = { name: p.name, phone: p.phone } })
+
+      // 각 참가자의 총 보유 스탬프 수 (기관 중복 제거)
+      const { data: allStamps } = await supabase
+        .from('stamp_records')
+        .select('participant_id, center_id')
+        .in('participant_id', pids)
+      const orgsById: Record<string, Set<number>> = {}
+      ;(allStamps ?? []).forEach((s: any) => {
+        if (!s.participant_id) return
+        if (!orgsById[s.participant_id]) orgsById[s.participant_id] = new Set()
+        orgsById[s.participant_id].add(s.center_id)
+      })
+
+      // 참가자별 1건으로 정리 (해당 기관 획득일 기준)
+      const seen = new Set<string>()
+      const list: CenterParticipant[] = []
+      records.forEach(r => {
+        if (!r.participant_id || seen.has(r.participant_id)) return
+        seen.add(r.participant_id)
+        const prof = profileMap[r.participant_id]
+        list.push({
+          id: r.participant_id,
+          name: prof?.name ?? '',
+          phone: prof?.phone ?? '',
+          totalStamps: orgsById[r.participant_id]?.size ?? 0,
+          stampedAt: r.stamped_at,
+        })
+      })
+      setCenterParticipants(prev => ({ ...prev, [centerId]: list }))
+    } finally {
+      setCenterLoading(null)
+    }
+  }
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true)
@@ -323,17 +390,55 @@ export default function DashboardTab({ admin }: Props) {
               {stats.centerBreakdown.map(({ center_id, center_name, count }, idx) => {
                 const org = ORGANIZATIONS.find(o => o.id === center_id)
                 const maxCount = Math.max(...stats.centerBreakdown.map(c => c.count), 1)
+                const isOpen = expandedCenter === center_id
+                const list = centerParticipants[center_id]
                 return (
-                  <div key={center_id} className="px-5 py-3 flex items-center gap-3">
-                    <span className="text-xs text-gray-400 w-5 text-center font-medium">{idx + 1}</span>
-                    {org && <OrgIcon org={org} size={32} rounded="rounded-lg" />}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-gray-800 truncate">{center_name}</p>
-                      <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full rounded-full" style={{ width: `${count > 0 ? Math.round((count / maxCount) * 100) : 0}%`, backgroundColor: org?.color ?? '#3B82F6' }} />
+                  <div key={center_id}>
+                    <button
+                      onClick={() => toggleCenter(center_id)}
+                      className="w-full px-5 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors text-left"
+                    >
+                      <span className="text-xs text-gray-400 w-5 text-center font-medium">{idx + 1}</span>
+                      {org && <OrgIcon org={org} size={32} rounded="rounded-lg" />}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-800 truncate">{center_name}</p>
+                        <div className="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${count > 0 ? Math.round((count / maxCount) * 100) : 0}%`, backgroundColor: org?.color ?? '#3B82F6' }} />
+                        </div>
                       </div>
-                    </div>
-                    <p className="text-sm font-bold text-gray-900 flex-shrink-0">{count}명</p>
+                      <p className="text-sm font-bold text-gray-900 flex-shrink-0">{count}명</p>
+                      <ChevronDown
+                        size={16}
+                        className={`text-gray-400 flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+
+                    {isOpen && (
+                      <div className="bg-gray-50/60 border-t border-gray-100">
+                        {centerLoading === center_id ? (
+                          <div className="py-6 flex justify-center">
+                            <RefreshCw size={16} className="animate-spin text-gray-300" />
+                          </div>
+                        ) : !list || list.length === 0 ? (
+                          <div className="py-6 text-center text-xs text-gray-400">스탬프를 받은 참가자가 없습니다</div>
+                        ) : (
+                          <div className="divide-y divide-gray-100">
+                            {list.map(p => (
+                              <div key={p.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-gray-900 truncate">{p.name || '익명'}</p>
+                                  <p className="text-xs text-gray-400 mt-0.5">{formatPhone(p.phone)}</p>
+                                </div>
+                                <div className="text-right flex-shrink-0">
+                                  <p className="text-sm font-bold text-blue-600">{p.totalStamps}<span className="text-xs font-normal text-gray-400"> / 17</span></p>
+                                  <p className="text-xs text-gray-400 mt-0.5">{formatDate(p.stampedAt)} 획득</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               })}
