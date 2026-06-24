@@ -35,6 +35,7 @@ export default function ProgramEditModal({
   const [time, setTime] = useState(program?.time ?? '')
   const [capacity, setCapacity] = useState(String(program?.capacity ?? 0))
   const [target, setTarget] = useState(program?.target ?? '')
+  const [applicationUrl, setApplicationUrl] = useState(program?.application_url ?? '')
   const [imageUrl, setImageUrl] = useState<string | null>(program?.image_url ?? null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(program?.image_url ?? null)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
@@ -90,6 +91,7 @@ export default function ProgramEditModal({
           capacity: cap,
           target: target.trim(),
           image_url: nextImageUrl,
+          application_url: applicationUrl.trim() || null,
           location: orgName,
         })
         setToast(true)
@@ -110,6 +112,7 @@ export default function ProgramEditModal({
           capacity: cap,
           target: target.trim(),
           image_url: nextImageUrl,
+          application_url: applicationUrl.trim() || null,
         }
         await updateProgram(program!.id, program!.organization_id, payload)
         const updated: Program = { ...program!, ...payload }
@@ -258,6 +261,16 @@ export default function ProgramEditModal({
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-gray-800"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">외부 신청 링크 (선택)</label>
+            <input
+              value={applicationUrl}
+              onChange={e => setApplicationUrl(e.target.value)}
+              placeholder="https://... (비워두면 기관 대표 신청 링크 사용)"
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-gray-800"
+            />
           </div>
 
           {error && (

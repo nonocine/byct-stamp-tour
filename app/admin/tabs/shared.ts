@@ -115,4 +115,6 @@ export interface ApplicationRow {
   center_name: string
   status: ApplicationStatus
   applied_at: string
+  program_id?: string | null
+  program_title?: string | null
 }

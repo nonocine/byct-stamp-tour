@@ -39,8 +39,11 @@ export default function ProgramsPage() {
   const [expanded, setExpanded] = useState<number | null>(null)
   const [centerUrls, setCenterUrls] = useState<Record<number, string>>({})
   const [appStatusByCenter, setAppStatusByCenter] = useState<Record<number, AppStatus>>({})
+  // 기관별로 어떤 프로그램으로 신청했는지 (program_id) — 같은 기관 다른 프로그램 중복 신청 차단용
+  const [appProgramByCenter, setAppProgramByCenter] = useState<Record<number, string | null>>({})
   const [stampedCenters, setStampedCenters] = useState<Set<number>>(new Set())
-  const [submittingOrgId, setSubmittingOrgId] = useState<number | null>(null)
+  const [submittingProgramId, setSubmittingProgramId] = useState<string | null>(null)
+  const [dupNotice, setDupNotice] = useState(false)
   const [programs, setPrograms] = useState<Program[]>([])
 
   const orgCardRefs = useRef<Record<number, HTMLDivElement | null>>({})
@@ -78,6 +81,7 @@ export default function ProgramsPage() {
       loadStamps()
     } else {
       setAppStatusByCenter({})
+      setAppProgramByCenter({})
       setStampedCenters(new Set())
     }
   }, [profile])
@@ -96,13 +100,18 @@ export default function ProgramsPage() {
     if (!profile) return
     const { data } = await supabase
       .from('applications')
-      .select('center_id, status')
+      .select('center_id, status, program_id')
       .eq('participant_id', profile.id)
-    const map: Record<number, AppStatus> = {}
+    const statusMap: Record<number, AppStatus> = {}
+    const progMap: Record<number, string | null> = {}
     ;(data ?? []).forEach((r: any) => {
-      if (r.center_id != null && r.status) map[r.center_id] = r.status as AppStatus
+      if (r.center_id != null && r.status) {
+        statusMap[r.center_id] = r.status as AppStatus
+        progMap[r.center_id] = r.program_id ?? null
+      }
     })
-    setAppStatusByCenter(map)
+    setAppStatusByCenter(statusMap)
+    setAppProgramByCenter(progMap)
   }
 
   async function loadStamps() {
@@ -120,8 +129,16 @@ export default function ProgramsPage() {
     )
   }
 
-  async function handleApplyComplete(orgId: number) {
-    console.log('[신청 완료] 호출됨, orgId =', orgId)
+  // 같은 기관에 이미(거절 제외) 신청한 다른 프로그램이 있으면 true
+  function isBlockedByOtherProgram(orgId: number, programId: string) {
+    const status = appStatusByCenter[orgId]
+    if (!status || status === 'rejected') return false
+    return appProgramByCenter[orgId] !== programId
+  }
+
+  async function handleApplyComplete(org: { id: number; name: string }, program: Program) {
+    const orgId = org.id
+    console.log('[신청 완료] 호출됨, orgId =', orgId, 'programId =', program.id)
 
     if (!profile) {
       console.warn('[신청 완료] 로그인 정보 없음 — profile is null')
@@ -134,14 +151,16 @@ export default function ProgramsPage() {
       phone: profile.phone,
     })
 
-    const currentStatus = appStatusByCenter[orgId]
-    if (currentStatus && currentStatus !== 'rejected') {
-      console.log('[신청 완료] 이미 신청한 기관, 무시 — 상태:', currentStatus)
+    // 같은 기관 다른 프로그램 중복 신청 차단
+    if (isBlockedByOtherProgram(orgId, program.id)) {
+      console.log('[신청 완료] 같은 기관 다른 프로그램 이미 신청 — 중복 안내')
+      setDupNotice(true)
       return
     }
-    const org = ORGANIZATIONS.find(o => o.id === orgId)
-    if (!org) {
-      console.warn('[신청 완료] 기관 정보를 찾지 못함, orgId =', orgId)
+
+    const currentStatus = appStatusByCenter[orgId]
+    if (currentStatus && currentStatus !== 'rejected') {
+      console.log('[신청 완료] 이미 신청한 프로그램, 무시 — 상태:', currentStatus)
       return
     }
 
@@ -151,6 +170,8 @@ export default function ProgramsPage() {
       participant_phone: profile.phone,
       center_id: orgId,
       center_name: org.name,
+      program_id: program.id,
+      program_title: program.title,
       status: 'pending',
     }
 
@@ -169,7 +190,7 @@ export default function ProgramsPage() {
     )
     console.log('[신청 완료] payload =', payload)
 
-    setSubmittingOrgId(orgId)
+    setSubmittingProgramId(program.id)
     try {
       // 1. applications 테이블 존재 여부 사전 확인 (table not found 식별용)
       const probe = await supabase.from('applications').select('id').limit(1)
@@ -201,6 +222,7 @@ export default function ProgramsPage() {
 
       console.log('[신청 완료] 저장 성공, 응답 데이터:', data)
       setAppStatusByCenter(prev => ({ ...prev, [orgId]: 'pending' }))
+      setAppProgramByCenter(prev => ({ ...prev, [orgId]: program.id }))
     } catch (e: any) {
       const rawMsg = e?.message ?? ''
       const msg = rawMsg.toLowerCase()
@@ -219,7 +241,7 @@ export default function ProgramsPage() {
       }
       alert(userMsg)
     } finally {
-      setSubmittingOrgId(null)
+      setSubmittingProgramId(null)
     }
   }
 
@@ -267,8 +289,6 @@ export default function ProgramsPage() {
         {ORGANIZATIONS.map(org => {
           const orgPrograms = programs.filter(p => p.organization_id === org.id)
           const isExpanded  = expanded === org.id
-          // 신청 단계 (① → 알림 뱃지) — 0이면 뱃지 숨김
-          const applyStep   = 1
 
           return (
             <div
@@ -302,88 +322,11 @@ export default function ProgramsPage() {
                     </div>
                   </div>
 
-                  {/* 신청 링크 + 신청 완료 */}
-                  <div className="px-4 pt-3 flex gap-2">
-                    {centerUrls[org.id] ? (
-                      <div className="relative flex-1">
-                        <a
-                          href={centerUrls[org.id]}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all"
-                        >
-                          프로그램 신청하기
-                          <ExternalLink size={14} />
-                        </a>
-                        {applyStep > 0 && (
-                          <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1.5 flex items-center justify-center bg-red-500 text-white text-[11px] font-bold rounded-full shadow-sm leading-none">
-                            {applyStep}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="flex-1 py-3 bg-gray-100 text-gray-400 text-sm font-medium rounded-xl text-center">
-                        준비중
-                      </div>
-                    )}
-                    {(() => {
-                      const status = appStatusByCenter[org.id]
-                      const submitting = submittingOrgId === org.id
-
-                      if (status === 'pending') {
-                        return (
-                          <div className="flex-1 flex items-center justify-center py-3 bg-amber-50 text-amber-700 text-sm font-bold rounded-xl border border-amber-200">
-                            ② ⏳ 승인 대기중
-                          </div>
-                        )
-                      }
-                      if (status === 'waiting') {
-                        return (
-                          <div className="flex-1 flex items-center justify-center py-3 bg-orange-50 text-orange-700 text-sm font-bold rounded-xl border border-orange-200">
-                            ② 📋 대기열 등록
-                          </div>
-                        )
-                      }
-                      if (status === 'approved') {
-                        const hasStamp = stampedCenters.has(org.id)
-                        return (
-                          <div className="flex-1 flex flex-col items-center justify-center py-2 bg-green-50 text-green-700 text-sm font-bold rounded-xl border border-green-200 leading-tight">
-                            <span>② ✅ 승인 완료</span>
-                            <span className="text-[10px] font-medium mt-0.5">
-                              {hasStamp ? '스탬프 발급됨' : '활동 후 스탬프 발급 예정'}
-                            </span>
-                          </div>
-                        )
-                      }
-                      if (status === 'rejected') {
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => handleApplyComplete(org.id)}
-                            disabled={submitting || !profile}
-                            className="flex-1 flex flex-col items-center justify-center py-2 bg-red-50 text-red-700 text-sm font-bold rounded-xl border border-red-200 hover:bg-red-100 active:scale-95 transition-all leading-tight disabled:opacity-50"
-                          >
-                            <span>② ❌ 거절됨</span>
-                            <span className="text-[10px] font-medium mt-0.5 underline">
-                              {submitting ? '재신청 중...' : '탭하여 재신청'}
-                            </span>
-                          </button>
-                        )
-                      }
-                      return (
-                        <button
-                          type="button"
-                          onClick={() => handleApplyComplete(org.id)}
-                          disabled={submitting || !profile}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-emerald-500 text-white text-sm font-bold rounded-xl hover:bg-emerald-600 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                          title={!profile ? '로그인이 필요합니다' : ''}
-                        >
-                          {submitting ? '저장 중...' : '② 신청 완료했어요'}
-                          {!submitting && <Check size={14} />}
-                        </button>
-                      )
-                    })()}
-                  </div>
+                  {orgPrograms.length === 0 && (
+                    <div className="px-4 py-6 text-center text-xs text-gray-400">
+                      등록된 프로그램이 없습니다.
+                    </div>
+                  )}
 
                   {orgPrograms.map((program, idx) => (
                     <div key={program.id} className={`px-4 py-3.5 ${idx > 0 ? 'border-t border-gray-100' : ''}`}>
@@ -414,6 +357,81 @@ export default function ProgramsPage() {
                       <span className="inline-block mt-2 bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded-full font-medium">
                         {program.target}
                       </span>
+
+                      {/* 프로그램별 신청 영역 */}
+                      {(() => {
+                        const status = appStatusByCenter[org.id]
+                        const appliedHere =
+                          !!status && status !== 'rejected' && appProgramByCenter[org.id] === program.id
+                        const blocked = isBlockedByOtherProgram(org.id, program.id)
+                        const submitting = submittingProgramId === program.id
+                        const link = program.application_url || centerUrls[org.id] || null
+
+                        // 이 프로그램으로 신청 완료된 경우 — 상태만 표시
+                        if (appliedHere) {
+                          if (status === 'pending') {
+                            return (
+                              <div className="mt-3 w-full flex items-center justify-center py-2.5 bg-amber-50 text-amber-700 text-sm font-bold rounded-xl border border-amber-200">
+                                ⏳ 승인 대기중
+                              </div>
+                            )
+                          }
+                          if (status === 'waiting') {
+                            return (
+                              <div className="mt-3 w-full flex items-center justify-center py-2.5 bg-orange-50 text-orange-700 text-sm font-bold rounded-xl border border-orange-200">
+                                📋 대기열 등록
+                              </div>
+                            )
+                          }
+                          // approved
+                          const hasStamp = stampedCenters.has(org.id)
+                          return (
+                            <div className="mt-3 w-full flex flex-col items-center justify-center py-2 bg-green-50 text-green-700 text-sm font-bold rounded-xl border border-green-200 leading-tight">
+                              <span>✅ 승인 완료</span>
+                              <span className="text-[10px] font-medium mt-0.5">
+                                {hasStamp ? '스탬프 발급됨' : '활동 후 스탬프 발급 예정'}
+                              </span>
+                            </div>
+                          )
+                        }
+
+                        // 신청 버튼 (① 외부 신청 링크 + ② 신청 완료)
+                        return (
+                          <div className="mt-3 flex gap-2">
+                            {link ? (
+                              <a
+                                href={link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={e => {
+                                  if (blocked) {
+                                    e.preventDefault()
+                                    setDupNotice(true)
+                                  }
+                                }}
+                                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 active:scale-95 transition-all"
+                              >
+                                ① 신청하기
+                                <ExternalLink size={14} />
+                              </a>
+                            ) : (
+                              <div className="flex-1 py-2.5 bg-gray-100 text-gray-400 text-sm font-medium rounded-xl text-center">
+                                준비중
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleApplyComplete(org, program)}
+                              disabled={submitting || !profile}
+                              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-emerald-500 text-white text-sm font-bold rounded-xl hover:bg-emerald-600 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                              title={!profile ? '로그인이 필요합니다' : ''}
+                            >
+                              {submitting ? '저장 중...' : status === 'rejected' ? '② 재신청' : '② 신청 완료'}
+                              {!submitting && <Check size={14} />}
+                            </button>
+                          </div>
+                        )
+                      })()}
                     </div>
                   ))}
                 </div>
@@ -423,6 +441,30 @@ export default function ProgramsPage() {
         })}
       </div>
 
+      {/* 같은 기관 중복 신청 안내 팝업 */}
+      {dupNotice && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onClick={() => setDupNotice(false)}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-xs p-5 text-center shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <p className="text-3xl mb-2">⚠️</p>
+            <p className="text-sm font-bold text-gray-900 mb-1.5">이미 신청한 기관입니다</p>
+            <p className="text-xs text-gray-500 leading-relaxed mb-4">
+              이미 이 기관에 신청한 프로그램이 있습니다. 한 기관에서는 스탬프를 1개만 획득할 수 있습니다.
+            </p>
+            <button
+              onClick={() => setDupNotice(false)}
+              className="w-full py-3 bg-gray-900 text-white text-sm font-bold rounded-xl hover:bg-gray-800 active:scale-95 transition-all"
+            >
+              확인
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

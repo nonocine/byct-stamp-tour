@@ -35,6 +35,7 @@ export interface Program {
   target: string
   image_url?: string | null
   plan_pdf_url?: string | null
+  application_url?: string | null
   updated_at?: string
 }
 

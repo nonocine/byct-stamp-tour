@@ -44,7 +44,7 @@ export default function ApplicationTab({ admin, onPendingCountChange }: Props) {
 
       let q = supabase
         .from('applications')
-        .select('id, participant_id, participant_name, participant_phone, center_id, center_name, status, applied_at')
+        .select('id, participant_id, participant_name, participant_phone, center_id, center_name, status, applied_at, program_id, program_title')
         .order('applied_at', { ascending: true })
       if (statusFilter !== 'all') q = q.eq('status', statusFilter)
       if (effectiveCenterId !== null) q = q.eq('center_id', effectiveCenterId)
@@ -417,6 +417,9 @@ export default function ApplicationTab({ admin, onPendingCountChange }: Props) {
                         )}
                       </div>
                       <p className="text-sm font-bold text-gray-900 mt-0.5">{app.participant_name}</p>
+                      {app.program_title && (
+                        <p className="text-xs text-blue-600 mt-0.5 truncate">🎯 {app.program_title}</p>
+                      )}
                       <p className="text-xs text-gray-500 mt-0.5">
                         {formatPhone(app.participant_phone)}
                       </p>

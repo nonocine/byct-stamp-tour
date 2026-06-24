@@ -35,6 +35,7 @@ export interface ProgramUpdatePayload {
   capacity: number
   target: string
   image_url?: string | null
+  application_url?: string | null
 }
 
 export interface ProgramCreatePayload extends ProgramUpdatePayload {
