@@ -4,6 +4,7 @@ import {
   AlignmentType,
   Document,
   HeadingLevel,
+  ImageRun,
   Packer,
   Paragraph,
   Table,
@@ -186,8 +187,88 @@ function buildBlocks(md: string): (Paragraph | Table)[] {
   return out
 }
 
-export async function downloadReportAsDocx(markdown: string, filename: string): Promise<void> {
+type DocxImageType = 'jpg' | 'png' | 'gif' | 'bmp'
+
+function imageTypeFromMime(mime: string): DocxImageType {
+  if (mime.includes('png')) return 'png'
+  if (mime.includes('gif')) return 'gif'
+  if (mime.includes('bmp')) return 'bmp'
+  return 'jpg'
+}
+
+// 브라우저에서 이미지 실제 크기 측정 (비율 유지용)
+function getImageDimensions(buf: ArrayBuffer, mime: string): Promise<{ width: number; height: number }> {
+  return new Promise(resolve => {
+    try {
+      const blob = new Blob([buf], { type: mime })
+      const url = URL.createObjectURL(blob)
+      const img = new Image()
+      img.onload = () => {
+        resolve({ width: img.naturalWidth || 450, height: img.naturalHeight || 300 })
+        URL.revokeObjectURL(url)
+      }
+      img.onerror = () => {
+        resolve({ width: 450, height: 300 })
+        URL.revokeObjectURL(url)
+      }
+      img.src = url
+    } catch {
+      resolve({ width: 450, height: 300 })
+    }
+  })
+}
+
+// photo_urls → "현장 사진" 섹션 블록 생성
+async function buildPhotoBlocks(photoUrls: string[]): Promise<(Paragraph | Table)[]> {
+  const out: (Paragraph | Table)[] = []
+  const MAX_W = 450 // px
+
+  const images: Paragraph[] = []
+  for (const url of photoUrls) {
+    try {
+      const res = await fetch(url)
+      if (!res.ok) continue
+      const buf = await res.arrayBuffer()
+      const mime = res.headers.get('content-type') || 'image/jpeg'
+      const type = imageTypeFromMime(mime)
+      const { width, height } = await getImageDimensions(buf, mime)
+      const scale = width > MAX_W ? MAX_W / width : 1
+      images.push(
+        new Paragraph({
+          children: [
+            new ImageRun({
+              data: buf,
+              type,
+              transformation: {
+                width: Math.round(width * scale),
+                height: Math.round(height * scale),
+              },
+            }),
+          ],
+          spacing: { after: 160 },
+        }),
+      )
+    } catch {
+      // 개별 이미지 실패는 건너뜀
+    }
+  }
+
+  if (images.length === 0) return out
+  out.push(headingPara('현장 사진', 2))
+  out.push(...images)
+  return out
+}
+
+export async function downloadReportAsDocx(
+  markdown: string,
+  filename: string,
+  photoUrls: string[] = [],
+): Promise<void> {
   const blocks = buildBlocks(markdown)
+  if (photoUrls.length > 0) {
+    const photoBlocks = await buildPhotoBlocks(photoUrls)
+    blocks.push(...photoBlocks)
+  }
   const doc = new Document({
     creator: 'B.Y.C.T 스탬프투어',
     styles: {

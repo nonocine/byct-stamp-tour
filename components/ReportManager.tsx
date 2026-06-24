@@ -171,7 +171,23 @@ export default function ReportManager({
       const tag = new Date().toISOString().slice(0, 10).replace(/-/g, '')
       const shortName = ORGANIZATIONS.find(o => o.id === centerId)?.shortName ?? 'center'
       const base = scope === 'global' ? `byct_통합보고서_${tag}` : `byct_${shortName}_${tag}`
-      await downloadReportAsDocx(markdown, `${base}.docx`)
+
+      // 기관별 보고서에는 현장 사진 첨부
+      let photoUrls: string[] = []
+      if (scope === 'center' && centerId) {
+        try {
+          const { data } = await supabase
+            .from('center_reports')
+            .select('photo_urls')
+            .eq('center_id', centerId)
+            .maybeSingle()
+          photoUrls = (data?.photo_urls as string[] | null) ?? []
+        } catch {
+          photoUrls = []
+        }
+      }
+
+      await downloadReportAsDocx(markdown, `${base}.docx`, photoUrls)
     } catch (e: any) {
       alert(`Word 파일 생성 실패: ${e?.message ?? e}`)
     } finally {
