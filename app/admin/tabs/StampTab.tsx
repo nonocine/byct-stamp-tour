@@ -409,7 +409,7 @@ export default function StampTab({ admin }: Props) {
                       {hasReview ? <CheckCircle size={15} /> : <Clock size={15} />}
                       {hasReview ? '평가 완료' : '평가 미완료'}
                     </span>
-                    <button onClick={handleStamp} disabled={stamping} className="flex-1 py-4 bg-blue-600 text-white font-bold text-base rounded-2xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                    <button onClick={handleStamp} disabled={stamping || !hasReview} className="flex-1 py-4 bg-blue-600 text-white font-bold text-base rounded-2xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
                       <Stamp size={18} />
                       {stamping ? '발급 중...' : '스탬프 발급'}
                     </button>
