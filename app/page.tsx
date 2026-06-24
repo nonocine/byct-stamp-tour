@@ -245,6 +245,12 @@ export default function HomePage() {
               <div>
                 <p className="text-sm font-semibold text-gray-900">{item.title}</p>
                 <p className="text-xs text-gray-500 whitespace-pre-line">{item.desc}</p>
+                {item.step === '02' && (
+                  <p className="mt-1 flex items-start gap-1 text-xs text-orange-500">
+                    <Info size={12} className="flex-shrink-0 mt-0.5 text-orange-500" />
+                    <span>※ 기관당 1개 프로그램만 참여 가능합니다. 동일 기관 중복 신청 및 중복 스탬프 발급은 불가합니다.</span>
+                  </p>
+                )}
               </div>
             </div>
           ))}
