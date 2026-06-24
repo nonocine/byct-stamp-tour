@@ -27,12 +27,24 @@ export default function CenterOpinionSection({ centerId, canEdit }: Props) {
       setLoading(true)
       setSavedAt(null)
       try {
-        const { data } = await supabase
+        // opinion + photo_urls 동시 조회. photo_urls 컬럼 미생성 등으로 실패하면
+        // opinion만 다시 조회해 종합의견은 항상 불러올 수 있도록 처리.
+        const { data, error } = await supabase
           .from('center_reports')
           .select('opinion, photo_urls')
           .eq('center_id', centerId)
           .maybeSingle()
-        if (active) {
+        if (error) {
+          const { data: opinionOnly } = await supabase
+            .from('center_reports')
+            .select('opinion')
+            .eq('center_id', centerId)
+            .maybeSingle()
+          if (active) {
+            setOpinion(opinionOnly?.opinion ?? '')
+            setPhotoUrls([])
+          }
+        } else if (active) {
           setOpinion(data?.opinion ?? '')
           setPhotoUrls((data?.photo_urls as string[] | null) ?? [])
         }
