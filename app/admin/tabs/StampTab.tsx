@@ -380,6 +380,15 @@ export default function StampTab({ admin }: Props) {
                   </div>
                 ) : alreadyStamped ? (
                   <>
+                    <span
+                      className={`flex w-fit items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold ${
+                        hasReview ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'
+                      }`}
+                      title={hasReview ? '만족도 평가 완료' : '만족도 평가 미완료'}
+                    >
+                      {hasReview ? <CheckCircle size={15} /> : <Clock size={15} />}
+                      {hasReview ? '평가 완료' : '평가 미완료'}
+                    </span>
                     <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
                       <div className="flex items-center gap-2">
                         <CheckCircle size={18} className="text-amber-500 flex-shrink-0" />
