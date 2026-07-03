@@ -55,14 +55,14 @@ export async function exportParticipantsExcel(centerId: number | null | undefine
   // 3. 스탬프 상세 fetch (centerId 있으면 해당 기관만)
   let sq = supabase
     .from('stamp_records')
-    .select('participant_id, participant_name, participant_phone, center_id, center_name, approved_by, stamped_at')
+    .select('participant_id, participant_name, participant_phone, center_id, center_name, program_title, approved_by, stamped_at')
     .order('stamped_at', { ascending: false })
   if (centerId !== null && centerId !== undefined) sq = sq.eq('center_id', centerId)
   const { data: stamps } = await sq
   const stampList = stamps ?? []
 
-  // 3-1. 프로그램명 매핑 — applications 를 participant_id + center_id 로 조인
-  //      (기존 데이터는 program_title 이 없어 빈칸으로 처리)
+  // 3-1. 프로그램명 fallback 매핑 — applications 를 participant_id + center_id 로 조인
+  //      (stamp_records.program_title 이 없는 기존 데이터 대비용)
   let aq = supabase
     .from('applications')
     .select('participant_id, center_id, program_title')
@@ -109,7 +109,7 @@ export async function exportParticipantsExcel(centerId: number | null | undefine
     '참가자명': s.participant_name ?? '',
     '전화번호': formatPhone(s.participant_phone ?? ''),
     '기관명': s.center_name ?? '',
-    '프로그램명': programByKey[`${s.participant_id}_${s.center_id}`] ?? '',
+    '프로그램명': s.program_title || programByKey[`${s.participant_id}_${s.center_id}`] || '',
     '스탬프 날짜': s.stamped_at ? formatDate(s.stamped_at) : '',
     '승인한 관리자': s.approved_by ?? '',
   }))
