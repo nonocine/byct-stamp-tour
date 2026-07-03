@@ -5,6 +5,8 @@ import {
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS } from '@/lib/data'
+import { fetchProgramsByOrg } from '@/lib/programs'
+import type { Program } from '@/lib/types'
 import type { AdminUser } from '@/components/AdminProvider'
 import {
   formatPhone,
@@ -23,6 +25,8 @@ export default function StampTab({ admin }: Props) {
   const [selectedOrgId, setSelectedOrgId] = useState<number | null>(
     admin.role === 'center' ? (admin.center_id ?? null) : null,
   )
+  const [programs, setPrograms] = useState<Program[]>([])
+  const [selectedProgramTitle, setSelectedProgramTitle] = useState('')
   const [alreadyStamped, setAlreadyStamped] = useState(false)
   const [existingStampId, setExistingStampId] = useState<string | null>(null)
   const [existingStampDate, setExistingStampDate] = useState<string | null>(null)
@@ -55,8 +59,17 @@ export default function StampTab({ admin }: Props) {
   useEffect(() => {
     if (admin.role === 'center' && admin.center_id) {
       setSelectedOrgId(admin.center_id)
+      loadPrograms(admin.center_id)
     }
   }, [admin])
+
+  // 해당 기관에 등록된 프로그램 목록 로드
+  //  - 1개면 자동 선택 후 바로 발급 가능, 2개 이상이면 발급 전 선택 필요
+  async function loadPrograms(orgId: number) {
+    const list = await fetchProgramsByOrg(orgId)
+    setPrograms(list)
+    setSelectedProgramTitle(list.length === 1 ? list[0].title : '')
+  }
 
   async function checkDuplicate(profileId: string, orgId: number) {
     const { data } = await supabase
@@ -137,6 +150,7 @@ export default function StampTab({ admin }: Props) {
   async function handleOrgSelect(orgId: number) {
     setSelectedOrgId(orgId)
     resetStampStatus()
+    await loadPrograms(orgId)
     if (foundProfile) {
       await checkDuplicate(foundProfile.id, orgId)
       await checkReview(foundProfile.id, orgId)
@@ -152,6 +166,11 @@ export default function StampTab({ admin }: Props) {
       alert('해당 참가자가 아직 만족도 평가를 완료하지 않았습니다.')
       return
     }
+    // 프로그램이 2개 이상이면 어느 프로그램 참여인지 선택 필수
+    if (programs.length >= 2 && !selectedProgramTitle) {
+      alert('참여한 프로그램을 선택해주세요.')
+      return
+    }
     setStamping(true)
     setSearchError('')
     try {
@@ -161,6 +180,7 @@ export default function StampTab({ admin }: Props) {
         participant_phone: foundProfile.phone,
         center_id: selectedOrgId,
         center_name: org.name,
+        program_title: selectedProgramTitle || null,
         approved_by: admin.name,
       }).select('id, stamped_at').single()
       if (error) throw error
@@ -423,6 +443,26 @@ export default function StampTab({ admin }: Props) {
                   </>
                 ) : (
                   <>
+                    {programs.length >= 2 ? (
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1.5">참여 프로그램 선택</label>
+                        <select
+                          value={selectedProgramTitle}
+                          onChange={e => setSelectedProgramTitle(e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-gray-800"
+                        >
+                          <option value="">프로그램을 선택하세요</option>
+                          {programs.map(p => (
+                            <option key={p.id} value={p.title}>{p.title}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : programs.length === 1 ? (
+                      <div className="flex justify-between items-center bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5">
+                        <span className="text-xs text-gray-500">참여 프로그램</span>
+                        <span className="text-sm font-medium text-gray-800">{selectedProgramTitle}</span>
+                      </div>
+                    ) : null}
                     <div className="flex items-center gap-2">
                       <span
                         className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold flex-shrink-0 ${
@@ -433,7 +473,7 @@ export default function StampTab({ admin }: Props) {
                         {hasReview ? <CheckCircle size={15} /> : <Clock size={15} />}
                         {hasReview ? '평가 완료' : '평가 미완료'}
                       </span>
-                      <button onClick={handleStamp} disabled={stamping || !hasReview} className="flex-1 py-4 bg-blue-600 text-white font-bold text-base rounded-2xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                      <button onClick={handleStamp} disabled={stamping || !hasReview || (programs.length >= 2 && !selectedProgramTitle)} className="flex-1 py-4 bg-blue-600 text-white font-bold text-base rounded-2xl hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
                         <Stamp size={18} />
                         {stamping ? '발급 중...' : '스탬프 발급'}
                       </button>
