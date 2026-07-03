@@ -61,6 +61,19 @@ export async function exportParticipantsExcel(centerId: number | null | undefine
   const { data: stamps } = await sq
   const stampList = stamps ?? []
 
+  // 3-1. 프로그램명 매핑 — applications 를 participant_id + center_id 로 조인
+  //      (기존 데이터는 program_title 이 없어 빈칸으로 처리)
+  let aq = supabase
+    .from('applications')
+    .select('participant_id, center_id, program_title')
+  if (centerId !== null && centerId !== undefined) aq = aq.eq('center_id', centerId)
+  const { data: apps } = await aq
+  const programByKey: Record<string, string> = {}
+  ;(apps ?? []).forEach((a: any) => {
+    if (!a.participant_id) return
+    programByKey[`${a.participant_id}_${a.center_id}`] = a.program_title ?? ''
+  })
+
   // 4. 총 스탬프 수 계산용 (전체 17개 기관 기준 — distinct center_id)
   const ids = profileList.map(p => p.id)
   const { data: countData } = ids.length > 0
@@ -96,6 +109,7 @@ export async function exportParticipantsExcel(centerId: number | null | undefine
     '참가자명': s.participant_name ?? '',
     '전화번호': formatPhone(s.participant_phone ?? ''),
     '기관명': s.center_name ?? '',
+    '프로그램명': programByKey[`${s.participant_id}_${s.center_id}`] ?? '',
     '스탬프 날짜': s.stamped_at ? formatDate(s.stamped_at) : '',
     '승인한 관리자': s.approved_by ?? '',
   }))
@@ -109,7 +123,7 @@ export async function exportParticipantsExcel(centerId: number | null | undefine
     sheet2Rows.length > 0 ? sheet2Rows : [{ '안내': '데이터 없음' }]
   )
   ws1['!cols'] = [{ wch: 6 }, { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 10 }]
-  ws2['!cols'] = [{ wch: 6 }, { wch: 10 }, { wch: 14 }, { wch: 24 }, { wch: 12 }, { wch: 12 }]
+  ws2['!cols'] = [{ wch: 6 }, { wch: 10 }, { wch: 14 }, { wch: 24 }, { wch: 20 }, { wch: 12 }, { wch: 12 }]
   XLSX.utils.book_append_sheet(wb, ws1, '참가자 목록')
   XLSX.utils.book_append_sheet(wb, ws2, '스탬프 상세')
 
