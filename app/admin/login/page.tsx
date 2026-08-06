@@ -2,7 +2,6 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Phone, Lock, Shield, ChevronLeft } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
 import { useAdmin } from '@/components/AdminProvider'
 import type { AdminUser } from '@/components/AdminProvider'
 
@@ -31,58 +30,26 @@ export default function AdminLoginPage() {
     setBusy(true)
     setError('')
     try {
-      const rawPhone = phone.replace(/\D/g, '')
-      const formattedPhone = rawPhone.replace(/^(\d{3})(\d{3,4})(\d{4})$/, '$1-$2-$3')
+      // 비밀번호 검증은 서버에서만 수행한다. admins 테이블은 브라우저에서
+      // 접근할 수 없다(RLS 차단). 성공 시 서버가 HttpOnly 세션 쿠키를 심는다.
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, password }),
+      })
 
-      console.log('[AdminLogin] 로그인 시도:', { rawPhone, formattedPhone, password })
+      const payload = await res.json().catch(() => null)
 
-      // 전화번호로 관리자 존재 여부 먼저 확인 (형식 무관)
-      const { data: byRaw, error: e1 } = await supabase
-        .from('admins')
-        .select('*')
-        .eq('phone', rawPhone)
-        .maybeSingle()
-
-      const { data: byFormatted, error: e2 } = await supabase
-        .from('admins')
-        .select('*')
-        .eq('phone', formattedPhone)
-        .maybeSingle()
-
-      console.log('[AdminLogin] 숫자형 조회 결과:', byRaw, e1)
-      console.log('[AdminLogin] 하이픈형 조회 결과:', byFormatted, e2)
-
-      const found = byRaw ?? byFormatted
-      const dbError = e1 ?? e2
-
-      if (dbError) throw dbError
-
-      if (!found) {
-        setError('전화번호 또는 비밀번호가 올바르지 않습니다')
-        console.warn('[AdminLogin] 해당 전화번호의 관리자 없음')
+      if (!res.ok) {
+        setError(payload?.error ?? '로그인에 실패했습니다')
         return
       }
 
-      console.log('[AdminLogin] 관리자 찾음:', { name: found.name, role: found.role, storedPhone: found.phone, storedPassword: found.password })
-
-      if (found.password !== password) {
-        setError('전화번호 또는 비밀번호가 올바르지 않습니다')
-        console.warn('[AdminLogin] 비밀번호 불일치. 입력:', JSON.stringify(password), '저장:', JSON.stringify(found.password))
-        return
-      }
-
-      loginAdmin({
-        id: found.id,
-        name: found.name,
-        phone: found.phone,
-        role: found.role,
-        center_id: found.center_id ?? null,
-        center_name: found.center_name ?? null,
-      } as AdminUser)
+      loginAdmin(payload.admin as AdminUser)
       router.replace('/admin')
     } catch (e: any) {
       console.error('[AdminLogin] 오류:', e)
-      setError(e.message ?? '로그인에 실패했습니다')
+      setError('네트워크 오류로 로그인에 실패했습니다')
     } finally {
       setBusy(false)
     }

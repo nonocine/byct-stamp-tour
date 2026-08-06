@@ -48,6 +48,9 @@ export function AdminProvider({ children }: { children: React.ReactNode }) {
   function logoutAdmin() {
     localStorage.removeItem(ADMIN_KEY)
     setAdmin(null)
+    // 서버 세션 쿠키도 함께 제거한다. localStorage 는 UI 표시용이고
+    // 실제 권한은 이 쿠키가 가지고 있다.
+    fetch('/api/admin/logout', { method: 'POST' }).catch(() => {})
   }
 
   return (

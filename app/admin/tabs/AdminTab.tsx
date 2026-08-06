@@ -1,7 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { Plus, Shield, RefreshCw, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS } from '@/lib/data'
 import type { AdminUser } from '@/components/AdminProvider'
 import { formatPhone, type AdminRow } from './shared'
@@ -70,11 +69,25 @@ export default function AdminTab({ admin }: Props) {
     return result.concat(orgGroups)
   }, [admins])
 
+  // admins 테이블은 RLS로 브라우저 접근이 차단되어 있다.
+  // 모든 접근은 슈퍼관리자 세션 쿠키를 검증하는 /api/admin/admins 를 통한다.
   async function loadAdmins() {
     setAdminsLoading(true)
-    const { data } = await supabase.from('admins').select('id, name, phone, role, center_id, center_name').order('role')
-    setAdmins(data ?? [])
-    setAdminsLoading(false)
+    try {
+      const res = await fetch('/api/admin/admins', { cache: 'no-store' })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) {
+        setAdminError(payload?.error ?? '목록을 불러오지 못했습니다')
+        setAdmins([])
+        return
+      }
+      setAdmins(payload.admins ?? [])
+    } catch {
+      setAdminError('네트워크 오류로 목록을 불러오지 못했습니다')
+      setAdmins([])
+    } finally {
+      setAdminsLoading(false)
+    }
   }
 
   async function handleAddAdmin() {
@@ -84,18 +97,26 @@ export default function AdminTab({ admin }: Props) {
     if (role === 'center' && !center_id) { setAdminError('기관을 선택해주세요'); return }
     setAddingAdmin(true)
     try {
-      const raw = phone.replace(/\D/g, '')
-      const org = ORGANIZATIONS.find(o => o.id === Number(center_id))
-      const { error } = await supabase.from('admins').insert({
-        name, phone: raw, password, role,
-        center_id: role === 'center' ? Number(center_id) : null,
-        center_name: role === 'center' ? (org?.name ?? '') : null,
+      const res = await fetch('/api/admin/admins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          phone: phone.replace(/\D/g, ''),
+          password,
+          role,
+          center_id: role === 'center' ? Number(center_id) : null,
+        }),
       })
-      if (error) throw error
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) {
+        setAdminError(payload?.error ?? '추가에 실패했습니다')
+        return
+      }
       setNewAdmin({ name: '', phone: '', password: '', role: 'center', center_id: '' })
       loadAdmins()
-    } catch (e: any) {
-      setAdminError(e.message ?? '추가에 실패했습니다')
+    } catch {
+      setAdminError('네트워크 오류로 추가에 실패했습니다')
     } finally {
       setAddingAdmin(false)
     }
@@ -103,8 +124,20 @@ export default function AdminTab({ admin }: Props) {
 
   async function handleDeleteAdmin(id: string) {
     if (!confirm('이 센터관리자를 삭제할까요?')) return
-    await supabase.from('admins').delete().eq('id', id)
-    loadAdmins()
+    setAdminError('')
+    try {
+      const res = await fetch(`/api/admin/admins?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null)
+        setAdminError(payload?.error ?? '삭제에 실패했습니다')
+        return
+      }
+      loadAdmins()
+    } catch {
+      setAdminError('네트워크 오류로 삭제에 실패했습니다')
+    }
   }
 
   useEffect(() => {

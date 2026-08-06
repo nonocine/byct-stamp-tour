@@ -1,0 +1,81 @@
+-- ============================================================================
+-- 20260805_04_vehicle_app_tables_DO_NOT_APPLY.sql
+--
+--   🚫 이 파일은 지금 실행하면 안 된다. 다른 앱을 죽인다.
+--
+-- 대상 테이블 6개는 **byct-stamp-tour 와 무관하다.** 이 저장소 전체에서
+-- 참조가 0건이며(grep 확인), 같은 Supabase 프로젝트를 공유하는 다른 앱 소유다.
+--
+--   drivers, driving_logs, settings          → C:\Users\user\Desktop\Projects\dongrae-car
+--   yangjeong_drivers, yangjeong_driving_logs,
+--   yangjeong_settings                       → C:\Users\user\Desktop\Projects\yangjeong-car
+--
+-- 두 앱 모두 lib/supabase.ts 에서 **anon key 만** 사용한다
+-- (SUPABASE_SERVICE_ROLE_KEY 가 .env.local 에 없음). Next.js server action 에서
+-- 호출하더라도 DB 롤은 anon 이므로, 정책 없이 RLS를 켜면 두 앱의 모든 쿼리가
+-- 즉시 실패한다. 차량 운행일지 기록/조회가 그 시점부터 불가능해진다.
+--
+-- ── 올바른 처리 순서 ────────────────────────────────────────────────────────
+--   1. dongrae-car / yangjeong-car 담당자와 합의
+--   2. 각 앱에 SUPABASE_SERVICE_ROLE_KEY 추가 + DB 접근을 server action/route 로 이관
+--      (두 앱 모두 이미 app/actions.ts 에 서버 코드가 있어 이관 난이도는 낮다)
+--   3. 그 배포가 끝난 뒤 아래 SQL 실행
+--
+-- ── 그때까지의 현실 ─────────────────────────────────────────────────────────
+--   현재 anon key 를 가진 누구나 두 기관의 운행일지와 운전자 명단(비밀번호 포함
+--   가능성 — dongrae-car 의 DriverWithPassword 타입 참조)을 읽고 쓸 수 있다.
+--   byct-stamp-tour 의 RLS 작업으로는 이 노출이 해소되지 않는다. 별건으로 보고 필요.
+--
+-- ── 참고: dream-road 저장소에 이미 같은 문제를 다룬 선례가 있다 ─────────────
+--   Projects\dream-road\supabase\migrations\0006_protect_legacy.sql
+--   → "RLS 활성화와 허용 정책 생성을 같은 트랜잭션에서 한다"는 안전장치를 쓴다.
+--     아래도 동일한 패턴을 따르되, 이 방식은 **anon 에게 계속 true 를 허용**하므로
+--     보안이 개선되지 않는다는 점을 분명히 알고 써야 한다.
+--     Supabase 대시보드의 "RLS disabled" 경고만 사라지고 노출은 그대로다.
+--     진짜 해결은 위 2번(service_role 이관) 뿐이다.
+-- ============================================================================
+
+-- 아래 블록은 주석 처리된 상태로 둔다. 위 1~2번을 완료한 뒤,
+-- 목적에 맞는 쪽을 선택해 주석을 해제할 것.
+
+
+-- ── (A) 앱을 안 깨뜨리는 무해한 버전 — 보안 개선 없음, 경고만 제거 ──────────
+--
+-- begin;
+--   do $$
+--   declare t text;
+--   begin
+--     foreach t in array array['drivers','driving_logs','settings',
+--                              'yangjeong_drivers','yangjeong_driving_logs',
+--                              'yangjeong_settings']
+--     loop
+--       execute format('alter table public.%I enable row level security', t);
+--       execute format(
+--         'create policy %I on public.%I for all to anon, authenticated using (true) with check (true)',
+--         t || '_anon_all', t
+--       );
+--     end loop;
+--   end $$;
+-- commit;
+
+
+-- ── (B) 실제로 잠그는 버전 — 두 차량 앱의 service_role 이관 완료 후에만 ─────
+--
+-- begin;
+--   do $$
+--   declare t text; p record;
+--   begin
+--     foreach t in array array['drivers','driving_logs','settings',
+--                              'yangjeong_drivers','yangjeong_driving_logs',
+--                              'yangjeong_settings']
+--     loop
+--       execute format('alter table public.%I enable row level security', t);
+--       for p in select policyname from pg_policies
+--                 where schemaname='public' and tablename=t
+--       loop
+--         execute format('drop policy %I on public.%I', p.policyname, t);
+--       end loop;
+--       execute format('revoke all on table public.%I from anon, authenticated', t);
+--     end loop;
+--   end $$;
+-- commit;
