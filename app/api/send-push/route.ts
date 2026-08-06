@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 import webpush from 'web-push'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
+import { readAdminSession } from '@/lib/adminSession'
 
 export const runtime = 'nodejs'
 
@@ -12,10 +13,6 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY)
 }
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ''
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
-
 interface PushPayload {
   participantId: string
   title: string
@@ -24,12 +21,26 @@ interface PushPayload {
   url?: string
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  // 이 엔드포인트는 관리자 화면(승인/거절/스탬프 발급·취소)에서만 호출된다.
+  // 예전에는 인증이 없어 누구나 임의의 참가자에게 알림을 보낼 수 있었다.
+  if (!readAdminSession(req)) {
+    return NextResponse.json({ error: '권한이 없습니다. 다시 로그인해주세요.' }, { status: 401 })
+  }
+
   if (!VAPID_PRIVATE_KEY || !VAPID_PUBLIC_KEY) {
     return NextResponse.json(
       { error: 'VAPID 키가 서버에 설정되지 않았습니다.' },
       { status: 500 },
     )
+  }
+
+  let supabase
+  try {
+    supabase = getSupabaseAdmin()
+  } catch (e: any) {
+    console.error('[send-push] 서버 설정 오류:', e?.message)
+    return NextResponse.json({ error: '서버 설정 오류입니다.' }, { status: 500 })
   }
 
   let payload: PushPayload

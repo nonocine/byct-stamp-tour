@@ -1,5 +1,10 @@
-import { supabase } from './supabase'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { ORGANIZATIONS } from './data'
+
+// 집계 함수는 Supabase 클라이언트를 인자로 받는다.
+// reviews / center_reports / global_plans 가 RLS로 잠겨 있어서 브라우저의 anon
+// 클라이언트로는 집계가 불가능하다. 호출은 /api/admin/report-data 라우트가
+// service_role 클라이언트로 수행한다.
 
 export interface ProgramSummary {
   id: string
@@ -173,25 +178,28 @@ function buildTimeline(apps: any[], stamps: any[]) {
 
 // ────────────────────────────────────────────────────────────────────────────
 
-export async function collectCenterReportData(centerId: number): Promise<CenterReportData> {
+export async function collectCenterReportData(
+  centerId: number,
+  client: SupabaseClient,
+): Promise<CenterReportData> {
   const org = ORGANIZATIONS.find(o => o.id === centerId)
   if (!org) throw new Error(`기관을 찾을 수 없습니다 (centerId=${centerId})`)
 
   const [progRes, appRes, stampRes, reviewRes] = await Promise.all([
-    supabase
+    client
       .from('programs')
       .select('id, title, date, time, capacity, target, plan_pdf_url')
       .eq('organization_id', centerId)
       .order('date', { ascending: true }),
-    supabase
+    client
       .from('applications')
       .select('id, status, applied_at, participant_id')
       .eq('center_id', centerId),
-    supabase
+    client
       .from('stamp_records')
       .select('id, stamped_at, participant_id')
       .eq('center_id', centerId),
-    supabase
+    client
       .from('reviews')
       .select('rating, comment, participant_name, program_rating, leader_rating, facility_rating, wish_program, created_at')
       .eq('center_id', centerId)
@@ -201,7 +209,7 @@ export async function collectCenterReportData(centerId: number): Promise<CenterR
   // 담당지도자 종합의견 (테이블 미생성 등으로 실패해도 보고서 생성은 계속)
   let leaderOpinion: string | null = null
   try {
-    const { data: opinionRow } = await supabase
+    const { data: opinionRow } = await client
       .from('center_reports')
       .select('opinion')
       .eq('center_id', centerId)
@@ -250,7 +258,7 @@ export async function collectCenterReportData(centerId: number): Promise<CenterR
   ) as string[]
   let profiles: any[] = []
   if (participantIds.length > 0) {
-    const { data } = await supabase.from('profiles').select('id, birthdate').in('id', participantIds)
+    const { data } = await client.from('profiles').select('id, birthdate').in('id', participantIds)
     profiles = data ?? []
   }
   const ageGroups = countAgeGroups(profiles.map(p => p.birthdate))
@@ -308,14 +316,16 @@ export async function collectCenterReportData(centerId: number): Promise<CenterR
 
 // ────────────────────────────────────────────────────────────────────────────
 
-export async function collectGlobalReportData(): Promise<GlobalReportData> {
+export async function collectGlobalReportData(
+  client: SupabaseClient,
+): Promise<GlobalReportData> {
   const [progRes, appRes, stampRes, reviewRes, profRes, gpRes] = await Promise.all([
-    supabase.from('programs').select('id, organization_id'),
-    supabase.from('applications').select('id, status, center_id, participant_id'),
-    supabase.from('stamp_records').select('id, center_id, participant_id'),
-    supabase.from('reviews').select('center_id, rating, program_rating, leader_rating, facility_rating'),
-    supabase.from('profiles').select('id, birthdate'),
-    supabase
+    client.from('programs').select('id, organization_id'),
+    client.from('applications').select('id, status, center_id, participant_id'),
+    client.from('stamp_records').select('id, center_id, participant_id'),
+    client.from('reviews').select('center_id, rating, program_rating, leader_rating, facility_rating'),
+    client.from('profiles').select('id, birthdate'),
+    client
       .from('global_plans')
       .select('*')
       .order('created_at', { ascending: false })

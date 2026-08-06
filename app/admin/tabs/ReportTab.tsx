@@ -52,14 +52,15 @@ export default function ReportTab({ admin }: Props) {
     return row.scope === 'center' && row.center_id === admin.center_id
   }
 
+  // global_plans / reports 는 RLS로 잠겨 있다. 권한 필터는 서버가 강제한다.
   async function loadGlobalPlans() {
     setGlobalPlansLoading(true)
     try {
-      const { data } = await supabase
-        .from('global_plans')
-        .select('id, title, pdf_url, uploaded_by, created_at')
-        .order('created_at', { ascending: false })
-      setGlobalPlans((data ?? []) as GlobalPlanRow[])
+      const res = await fetch('/api/admin/global-plans', { cache: 'no-store' })
+      const payload = res.ok ? await res.json().catch(() => null) : null
+      setGlobalPlans((payload?.plans ?? []) as GlobalPlanRow[])
+    } catch {
+      setGlobalPlans([])
     } finally {
       setGlobalPlansLoading(false)
     }
@@ -68,29 +69,9 @@ export default function ReportTab({ admin }: Props) {
   async function loadSavedReports() {
     setSavedReportsLoading(true)
     try {
-      let query
-      if (admin.role === 'center') {
-        if (!admin.center_id) {
-          setSavedReports([])
-          return
-        }
-        query = supabase
-          .from('reports')
-          .select('id, scope, center_id, title, created_by, created_at')
-          .eq('scope', 'center')
-          .eq('center_id', admin.center_id)
-          .order('created_at', { ascending: false })
-      } else {
-        query = supabase
-          .from('reports')
-          .select('id, scope, center_id, title, created_by, created_at')
-          .order('created_at', { ascending: false })
-      }
-      const { data, error } = await query
-      if (error) throw error
-
-      const rows = ((data ?? []) as SavedReportRow[]).filter(canAccessReport)
-      setSavedReports(rows)
+      const res = await fetch('/api/admin/reports', { cache: 'no-store' })
+      const payload = res.ok ? await res.json().catch(() => null) : null
+      setSavedReports((payload?.reports ?? []) as SavedReportRow[])
     } catch (e: any) {
       console.error('[loadSavedReports]', e)
       setSavedReports([])
@@ -139,12 +120,15 @@ export default function ReportTab({ admin }: Props) {
       if (upErr) throw upErr
 
       const { data: pub } = supabase.storage.from('program-plans').getPublicUrl(path)
-      const { error: dbErr } = await supabase.from('global_plans').insert({
-        title,
-        pdf_url: pub.publicUrl,
-        uploaded_by: admin.name,
+      const res = await fetch('/api/admin/global-plans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, pdf_url: pub.publicUrl, uploaded_by: admin.name }),
       })
-      if (dbErr) throw dbErr
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null)
+        throw new Error(payload?.error ?? '계획서 정보 저장에 실패했습니다.')
+      }
 
       setGpTitle('')
       loadGlobalPlans()
@@ -166,8 +150,13 @@ export default function ReportTab({ admin }: Props) {
         const { error: rmErr } = await supabase.storage.from('program-plans').remove([p])
         if (rmErr) console.warn('[전체 계획서] Storage 제거 실패:', rmErr.message)
       }
-      const { error: delErr } = await supabase.from('global_plans').delete().eq('id', plan.id)
-      if (delErr) throw delErr
+      const res = await fetch(`/api/admin/global-plans?id=${encodeURIComponent(plan.id)}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null)
+        throw new Error(payload?.error ?? '삭제에 실패했습니다.')
+      }
       loadGlobalPlans()
     } catch (err: any) {
       alert(`삭제 실패: ${err?.message ?? err}`)
@@ -180,13 +169,12 @@ export default function ReportTab({ admin }: Props) {
       return
     }
     try {
-      const { data, error } = await supabase
-        .from('reports')
-        .select('content_md')
-        .eq('id', row.id)
-        .single()
-      if (error) throw error
-      if (!data) return
+      const res = await fetch(`/api/admin/reports?id=${encodeURIComponent(row.id)}`, {
+        cache: 'no-store',
+      })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(payload?.error ?? '보고서를 불러오지 못했습니다.')
+      if (!payload) return
 
       if (row.scope === 'global') {
         setReportScope('global')
@@ -195,7 +183,7 @@ export default function ReportTab({ admin }: Props) {
         setReportScope('center')
         setReportCenterId(row.center_id)
       }
-      setLoadedReport({ markdown: data.content_md as string, key: `${row.id}-${Date.now()}` })
+      setLoadedReport({ markdown: payload.content_md as string, key: `${row.id}-${Date.now()}` })
     } catch (e: any) {
       alert(`보고서 불러오기 실패: ${e?.message ?? e}`)
     }
@@ -208,20 +196,14 @@ export default function ReportTab({ admin }: Props) {
     }
     if (!confirm(`"${row.title}"\n이 보고서를 삭제하시겠습니까?`)) return
     try {
-      if (admin.role === 'center' && admin.center_id) {
-        const { data: target, error: chkErr } = await supabase
-          .from('reports')
-          .select('scope, center_id')
-          .eq('id', row.id)
-          .maybeSingle()
-        if (chkErr) throw chkErr
-        if (!target || target.scope !== 'center' || target.center_id !== admin.center_id) {
-          alert('본인 기관 보고서만 삭제할 수 있습니다.')
-          return
-        }
+      // 권한 재확인은 서버가 한다 (기관 소유 여부까지 검사한 뒤 삭제).
+      const res = await fetch(`/api/admin/reports?id=${encodeURIComponent(row.id)}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null)
+        throw new Error(payload?.error ?? '삭제에 실패했습니다.')
       }
-      const { error } = await supabase.from('reports').delete().eq('id', row.id)
-      if (error) throw error
       setSavedReports(prev => prev.filter(r => r.id !== row.id))
     } catch (e: any) {
       alert(`삭제 실패: ${e?.message ?? e}`)

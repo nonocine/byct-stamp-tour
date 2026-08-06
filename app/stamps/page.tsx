@@ -51,10 +51,10 @@ export default function StampsPage() {
         .select('id, center_id, center_name, approved_by, stamped_at')
         .eq('participant_id', profile.id)
         .order('stamped_at', { ascending: false }),
-      supabase
-        .from('reviews')
-        .select('id, center_id, rating, comment')
-        .eq('participant_id', profile.id),
+      // reviews 는 RLS로 잠겨 있어 서버 경유. 본인 것만 반환된다.
+      fetch('/api/me/reviews', { cache: 'no-store' })
+        .then(r => (r.ok ? r.json() : null))
+        .catch(() => null),
       supabase
         .from('applications')
         .select('center_id')
@@ -62,7 +62,7 @@ export default function StampsPage() {
         .eq('status', 'approved'),
     ])
     setRecords(stampsRes.data ?? [])
-    setReviews(reviewsRes.data ?? [])
+    setReviews(reviewsRes?.reviews ?? [])
     setApprovedOrgIds(new Set((appsRes.data ?? []).map((a: any) => a.center_id)))
     setFetching(false)
   }

@@ -1,7 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import { Star, Users, BarChart3, RefreshCw, Trash2 } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS } from '@/lib/data'
 import OrgIcon from '@/components/OrgIcon'
 import type { AdminUser } from '@/components/AdminProvider'
@@ -19,16 +18,16 @@ export default function ReviewTab({ admin }: Props) {
   )
   const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null)
 
+  // reviews 는 RLS로 잠겨 있다. 센터관리자는 서버가 본인 기관으로 강제 필터한다.
   const loadReviews = useCallback(async (centerId: number | null) => {
     setReviewsLoading(true)
     try {
-      let query = supabase
-        .from('reviews')
-        .select('id, participant_id, participant_name, center_id, center_name, rating, comment, created_at')
-        .order('created_at', { ascending: false })
-      if (centerId !== null) query = query.eq('center_id', centerId)
-      const { data } = await query
-      setReviews((data ?? []) as ReviewRow[])
+      const qs = centerId !== null ? `?centerId=${centerId}` : ''
+      const res = await fetch(`/api/admin/reviews${qs}`, { cache: 'no-store' })
+      const payload = res.ok ? await res.json().catch(() => null) : null
+      setReviews((payload?.reviews ?? []) as ReviewRow[])
+    } catch {
+      setReviews([])
     } finally {
       setReviewsLoading(false)
     }
@@ -39,16 +38,17 @@ export default function ReviewTab({ admin }: Props) {
     if (!confirm('이 평가를 삭제할까요?')) return
     setDeletingReviewId(id)
     try {
-      const { error } = await supabase.from('reviews').delete().eq('id', id)
-      if (error) throw error
+      const res = await fetch(`/api/admin/reviews?id=${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null)
+        alert(payload?.error ?? '삭제에 실패했습니다. 다시 시도해주세요.')
+        return
+      }
       setReviews(prev => prev.filter(r => r.id !== id))
-    } catch (e: any) {
-      const msg = (e?.message ?? '').toLowerCase()
-      alert(
-        msg.includes('failed to fetch') || msg.includes('network')
-          ? '네트워크 오류가 발생했습니다.'
-          : '삭제에 실패했습니다. 다시 시도해주세요.'
-      )
+    } catch {
+      alert('네트워크 오류가 발생했습니다.')
     } finally {
       setDeletingReviewId(null)
     }

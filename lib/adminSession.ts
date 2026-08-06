@@ -11,10 +11,13 @@
  * localStorage 의 byct_admin 은 계속 남지만 UI 표시 용도로만 쓰인다.
  * 권한의 단일 진실 소스는 이 쿠키다.
  *
+ * 서명 primitive 는 lib/sessionCrypto.ts 와 공유한다 (토큰 형식 동일 —
+ * 형식을 바꾸면 사용 중인 관리자 세션이 전부 무효화된다).
+ *
  * ⚠️ 서버 전용 모듈. 클라이언트 컴포넌트에서 import 금지.
  */
-import { createHmac, timingSafeEqual } from 'crypto'
 import type { NextRequest } from 'next/server'
+import { signPayload, verifyPayload } from '@/lib/sessionCrypto'
 
 export const ADMIN_COOKIE = 'byct_admin_session'
 
@@ -28,57 +31,22 @@ export interface AdminSession {
   exp: number
 }
 
-function getSecret(): Buffer {
-  const secret = process.env.ADMIN_SESSION_SECRET ?? ''
-  if (secret.length < 32) {
-    // fail closed — 시크릿이 없으면 세션을 발급/검증하지 않는다.
-    throw new Error(
-      'ADMIN_SESSION_SECRET 이 설정되지 않았거나 너무 짧습니다(32자 이상 필요). ' +
-        '.env.local 과 Vercel 환경변수를 확인해주세요.',
-    )
-  }
-  return Buffer.from(secret, 'utf8')
-}
-
-function mac(body: string): string {
-  return createHmac('sha256', getSecret()).update(body).digest('base64url')
-}
-
 /** 쿠키에 담을 서명 토큰을 만든다. */
 export function signSession(payload: Omit<AdminSession, 'exp'>): string {
-  const exp = Math.floor(Date.now() / 1000) + SESSION_MAX_AGE
-  const body = Buffer.from(JSON.stringify({ ...payload, exp })).toString('base64url')
-  return `${body}.${mac(body)}`
+  return signPayload({ ...payload }, SESSION_MAX_AGE)
 }
 
 /** 서명과 만료를 검증한다. 실패 시 null. */
 export function verifySession(token: string | undefined | null): AdminSession | null {
-  if (!token) return null
-
-  const dot = token.lastIndexOf('.')
-  if (dot <= 0) return null
-
-  const body = token.slice(0, dot)
-  const provided = Buffer.from(token.slice(dot + 1), 'utf8')
-
-  let expected: Buffer
-  try {
-    expected = Buffer.from(mac(body), 'utf8')
-  } catch {
-    return null // 시크릿 미설정
-  }
-
-  if (provided.length !== expected.length) return null
-  if (!timingSafeEqual(provided, expected)) return null
-
-  try {
-    const parsed = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'))
-    if (typeof parsed?.id !== 'string') return null
-    if (parsed.role !== 'super' && parsed.role !== 'center') return null
-    if (typeof parsed.exp !== 'number' || parsed.exp < Date.now() / 1000) return null
-    return parsed as AdminSession
-  } catch {
-    return null
+  const parsed = verifyPayload(token)
+  if (!parsed) return null
+  if (typeof parsed.id !== 'string') return null
+  if (parsed.role !== 'super' && parsed.role !== 'center') return null
+  return {
+    id: parsed.id,
+    role: parsed.role,
+    center_id: parsed.center_id ?? null,
+    exp: parsed.exp,
   }
 }
 
@@ -91,4 +59,14 @@ export function readAdminSession(req: NextRequest): AdminSession | null {
 export function readSuperAdminSession(req: NextRequest): AdminSession | null {
   const session = readAdminSession(req)
   return session?.role === 'super' ? session : null
+}
+
+/**
+ * 해당 기관 데이터에 접근할 권한이 있는지.
+ * 슈퍼관리자는 전체, 센터관리자는 본인 기관만.
+ */
+export function canAccessCenter(session: AdminSession, centerId: number | null): boolean {
+  if (session.role === 'super') return true
+  if (centerId === null) return false
+  return session.center_id === centerId
 }

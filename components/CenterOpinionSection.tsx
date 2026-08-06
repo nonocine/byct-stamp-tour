@@ -27,26 +27,14 @@ export default function CenterOpinionSection({ centerId, canEdit }: Props) {
       setLoading(true)
       setSavedAt(null)
       try {
-        // opinion + photo_urls 동시 조회. photo_urls 컬럼 미생성 등으로 실패하면
-        // opinion만 다시 조회해 종합의견은 항상 불러올 수 있도록 처리.
-        const { data, error } = await supabase
-          .from('center_reports')
-          .select('opinion, photo_urls')
-          .eq('center_id', centerId)
-          .maybeSingle()
-        if (error) {
-          const { data: opinionOnly } = await supabase
-            .from('center_reports')
-            .select('opinion')
-            .eq('center_id', centerId)
-            .maybeSingle()
-          if (active) {
-            setOpinion(opinionOnly?.opinion ?? '')
-            setPhotoUrls([])
-          }
-        } else if (active) {
-          setOpinion(data?.opinion ?? '')
-          setPhotoUrls((data?.photo_urls as string[] | null) ?? [])
+        // center_reports 는 RLS로 잠겨 있어 관리자 세션을 검증하는 서버 경유.
+        const res = await fetch(`/api/admin/center-report?centerId=${centerId}`, {
+          cache: 'no-store',
+        })
+        const payload = res.ok ? await res.json().catch(() => null) : null
+        if (active) {
+          setOpinion(payload?.opinion ?? '')
+          setPhotoUrls((payload?.photo_urls as string[] | null) ?? [])
         }
       } finally {
         if (active) setLoading(false)
@@ -56,16 +44,23 @@ export default function CenterOpinionSection({ centerId, canEdit }: Props) {
     return () => { active = false }
   }, [centerId])
 
+  /** center_reports 부분 갱신 — opinion / photo_urls 중 보낸 항목만 바뀐다. */
+  async function patchCenterReport(patch: Record<string, unknown>) {
+    const res = await fetch('/api/admin/center-report', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ centerId, ...patch }),
+    })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null)
+      throw new Error(payload?.error ?? '저장에 실패했습니다.')
+    }
+  }
+
   async function handleSave() {
     setSaving(true)
     try {
-      const { error } = await supabase
-        .from('center_reports')
-        .upsert(
-          { center_id: centerId, opinion: opinion.trim() || null, updated_at: new Date().toISOString() },
-          { onConflict: 'center_id' },
-        )
-      if (error) throw error
+      await patchCenterReport({ opinion })
       setSavedAt(new Date().toLocaleTimeString('ko-KR'))
     } catch (e: any) {
       alert(`종합의견 저장 실패: ${e?.message ?? e}`)
@@ -74,15 +69,9 @@ export default function CenterOpinionSection({ centerId, canEdit }: Props) {
     }
   }
 
-  // photo_urls 배열만 따로 upsert (opinion은 건드리지 않음)
+  // photo_urls 배열만 따로 저장 (opinion은 건드리지 않음)
   async function persistPhotos(next: string[]) {
-    const { error } = await supabase
-      .from('center_reports')
-      .upsert(
-        { center_id: centerId, photo_urls: next, updated_at: new Date().toISOString() },
-        { onConflict: 'center_id' },
-      )
-    if (error) throw error
+    await patchCenterReport({ photo_urls: next })
   }
 
   function triggerUpload() {

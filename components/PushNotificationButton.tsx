@@ -1,7 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { Bell, BellOff, Loader2 } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/AuthProvider'
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ''
@@ -62,13 +61,16 @@ export default function PushNotificationButton() {
         throw new Error('구독 정보가 불완전합니다')
       }
 
-      const { error } = await supabase
-        .from('push_subscriptions')
-        .upsert(
-          { participant_id: profile.id, endpoint, p256dh, auth },
-          { onConflict: 'endpoint' },
-        )
-      if (error) throw error
+      // participant_id 는 보내지 않는다 — 서버가 세션 쿠키에서 꺼낸다.
+      const res = await fetch('/api/me/push-subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint, p256dh, auth }),
+      })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null)
+        throw new Error(payload?.error ?? '알림 구독 등록에 실패했습니다')
+      }
 
       setStatus('granted')
     } catch (e: any) {

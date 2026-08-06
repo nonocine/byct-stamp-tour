@@ -84,14 +84,18 @@ export default function StampTab({ admin }: Props) {
   }
 
   // 해당 참가자가 해당 기관에 만족도 평가를 완료했는지 확인
+  // reviews 는 RLS로 잠겨 있어 관리자 세션을 검증하는 서버 라우트를 경유한다.
   async function checkReview(profileId: string, orgId: number) {
-    const { data } = await supabase
-      .from('reviews')
-      .select('id')
-      .eq('participant_id', profileId)
-      .eq('center_id', orgId)
-      .maybeSingle()
-    setHasReview(!!data)
+    try {
+      const res = await fetch(
+        `/api/admin/reviews?participantId=${encodeURIComponent(profileId)}&centerId=${orgId}`,
+        { cache: 'no-store' },
+      )
+      const payload = res.ok ? await res.json().catch(() => null) : null
+      setHasReview((payload?.reviews ?? []).length > 0)
+    } catch {
+      setHasReview(false)
+    }
   }
 
   // 평가 완료 여부 다시 확인 — 참가자가 검색 이후 평가를 작성한 경우 반영

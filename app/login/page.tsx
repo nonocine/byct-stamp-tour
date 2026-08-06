@@ -2,7 +2,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { Phone, User, Calendar, ChevronLeft, LogIn, UserPlus } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/AuthProvider'
 import type { Profile } from '@/components/AuthProvider'
 import { calculateKoreanAge, minBirthdateForMaxAge } from '@/lib/age'
@@ -91,23 +90,24 @@ export default function LoginPage() {
     setBusy(true)
     setErrors({})
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('phone', rawDigits(phone))
-        .eq('birthdate', rawDigits(birthdate))
-        .maybeSingle()
+      // 서버가 검증하고 HttpOnly 세션 쿠키를 심는다.
+      // 평가 작성/알림 구독 등 "본인 확인"이 필요한 API 는 그 쿠키만 신뢰한다.
+      const res = await fetch('/api/participant/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: rawDigits(phone), birthdate: rawDigits(birthdate) }),
+      })
+      const payload = await res.json().catch(() => null)
 
-      if (error) throw error
-      if (!data) {
-        setErrors({ form: '전화번호 또는 생년월일이 일치하지 않습니다' })
+      if (!res.ok) {
+        setErrors({ form: payload?.error ?? '로그인에 실패했습니다' })
         return
       }
 
-      login(data as Profile)
+      login(payload.profile as Profile)
       router.replace('/')
-    } catch (err: any) {
-      setErrors({ form: err.message ?? '로그인에 실패했습니다' })
+    } catch {
+      setErrors({ form: '네트워크 오류로 로그인에 실패했습니다' })
     } finally {
       setBusy(false)
     }
@@ -120,34 +120,29 @@ export default function LoginPage() {
     setBusy(true)
     setErrors({})
     try {
-      // 중복 전화번호 확인
-      const { data: existing } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('phone', rawDigits(phone))
-        .maybeSingle()
-
-      if (existing) {
-        setErrors({ phone: '이미 등록된 전화번호입니다. 로그인해주세요.' })
-        return
-      }
-
-      const { data, error } = await supabase
-        .from('profiles')
-        .insert({
+      // 중복 확인과 생성을 서버가 한 번에 처리하고 세션 쿠키를 심는다.
+      const res = await fetch('/api/participant/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           name: name.trim(),
           phone: rawDigits(phone),
           birthdate: rawDigits(birthdate),
-        })
-        .select()
-        .single()
+        }),
+      })
+      const payload = await res.json().catch(() => null)
 
-      if (error) throw error
+      if (!res.ok) {
+        // 전화번호 중복은 해당 입력칸에 표시
+        if (payload?.field === 'phone') setErrors({ phone: payload.error })
+        else setErrors({ form: payload?.error ?? '가입에 실패했습니다' })
+        return
+      }
 
-      login(data as Profile)
+      login(payload.profile as Profile)
       router.replace('/')
-    } catch (err: any) {
-      setErrors({ form: err.message ?? '가입에 실패했습니다' })
+    } catch {
+      setErrors({ form: '네트워크 오류로 가입에 실패했습니다' })
     } finally {
       setBusy(false)
     }

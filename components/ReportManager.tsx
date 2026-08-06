@@ -1,10 +1,8 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { RefreshCw, Download, FileText, Save, Eye, Edit2 } from 'lucide-react'
-import { collectCenterReportData, collectGlobalReportData } from '@/lib/reportData'
 import { generateCenterReport, generateGlobalReport } from '@/lib/reportGenerator'
 import { downloadReportAsDocx } from '@/lib/reportDocx'
-import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS } from '@/lib/data'
 import SatisfactionChart, { type SatisfactionData } from '@/components/SatisfactionChart'
 import CenterOpinionSection from '@/components/CenterOpinionSection'
@@ -130,6 +128,21 @@ export default function ReportManager({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalMarkdownKey])
 
+  /**
+   * 보고서 집계는 서버(service_role)에서 수행한다 — reviews / center_reports /
+   * global_plans 가 RLS로 잠겨 있어 브라우저에서는 집계할 수 없다.
+   */
+  async function fetchReportData(scopeArg: 'center', centerIdArg: number): Promise<any>
+  async function fetchReportData(scopeArg: 'global'): Promise<any>
+  async function fetchReportData(scopeArg: 'center' | 'global', centerIdArg?: number): Promise<any> {
+    const qs =
+      scopeArg === 'global' ? 'scope=global' : `scope=center&centerId=${centerIdArg}`
+    const res = await fetch(`/api/admin/report-data?${qs}`, { cache: 'no-store' })
+    const payload = await res.json().catch(() => null)
+    if (!res.ok) throw new Error(payload?.error ?? '데이터 수집에 실패했습니다.')
+    return payload.data
+  }
+
   async function handleGenerate() {
     setStatus('collecting')
     setError('')
@@ -137,7 +150,7 @@ export default function ReportManager({
     try {
       let md: string
       if (scope === 'global') {
-        const data = await collectGlobalReportData()
+        const data = await fetchReportData('global')
         md = generateGlobalReport(data)
         setSatisfaction({
           programAvg: data.satisfaction.programAvg,
@@ -146,7 +159,7 @@ export default function ReportManager({
         })
       } else {
         if (!centerId) throw new Error('기관이 선택되지 않았습니다.')
-        const data = await collectCenterReportData(centerId)
+        const data = await fetchReportData('center', centerId)
         md = generateCenterReport(data)
         setSatisfaction({
           programAvg: data.satisfaction.programAvg,
@@ -176,12 +189,11 @@ export default function ReportManager({
       let photoUrls: string[] = []
       if (scope === 'center' && centerId) {
         try {
-          const { data } = await supabase
-            .from('center_reports')
-            .select('photo_urls')
-            .eq('center_id', centerId)
-            .maybeSingle()
-          photoUrls = (data?.photo_urls as string[] | null) ?? []
+          const res = await fetch(`/api/admin/center-report?centerId=${centerId}`, {
+            cache: 'no-store',
+          })
+          const payload = res.ok ? await res.json().catch(() => null) : null
+          photoUrls = (payload?.photo_urls as string[] | null) ?? []
         } catch {
           photoUrls = []
         }
@@ -207,14 +219,21 @@ export default function ReportManager({
       const title = titleLine
         ? titleLine.replace(/^#\s+/, '').trim()
         : `보고서 ${new Date().toLocaleDateString('ko-KR')}`
-      const { error } = await supabase.from('reports').insert({
-        scope,
-        center_id: scope === 'center' ? (centerId ?? null) : null,
-        title,
-        content_md: markdown,
-        created_by: createdBy,
+      const res = await fetch('/api/admin/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope,
+          center_id: scope === 'center' ? (centerId ?? null) : null,
+          title,
+          content_md: markdown,
+          created_by: createdBy,
+        }),
       })
-      if (error) throw error
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null)
+        throw new Error(payload?.error ?? '저장에 실패했습니다.')
+      }
       setSavedAt(new Date().toLocaleTimeString('ko-KR'))
     } catch (e: any) {
       alert(`DB 저장 실패: ${e?.message ?? e}`)

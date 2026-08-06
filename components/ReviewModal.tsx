@@ -1,7 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { Star, X, Save, Trash2, RefreshCw } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
 import OrgIcon from '@/components/OrgIcon'
 import type { Organization } from '@/lib/types'
 
@@ -83,12 +82,10 @@ export default function ReviewModal({ open, onClose, org, participant, onSaved }
   async function loadReview() {
     setLoading(true)
     try {
-      const { data } = await supabase
-        .from('reviews')
-        .select('id, rating, comment, program_rating, leader_rating, facility_rating, wish_program, created_at')
-        .eq('participant_id', participant.id)
-        .eq('center_id', org.id)
-        .maybeSingle()
+      // 본인 평가만 반환된다 (서버가 세션 쿠키의 participant_id 로 필터).
+      const res = await fetch(`/api/me/reviews?centerId=${org.id}`, { cache: 'no-store' })
+      const payload = res.ok ? await res.json().catch(() => null) : null
+      const data = payload?.review ?? null
       if (data) {
         setExisting(data)
         // 신규 항목이 있으면 그대로, 없으면(구버전 데이터) 기존 rating으로 채움
@@ -120,33 +117,29 @@ export default function ReviewModal({ open, onClose, org, participant, onSaved }
     setSaving(true)
     setError('')
     try {
-      // 세 항목 평균을 기존 rating(정수)으로 자동 계산
-      const rating = Math.round((programRating + leaderRating + facilityRating) / 3)
-      const payload = {
-        participant_id: participant.id,
-        participant_name: participant.name,
-        center_id: org.id,
-        center_name: org.name,
-        rating,
-        program_rating: programRating,
-        leader_rating: leaderRating,
-        facility_rating: facilityRating,
-        wish_program: wishProgram.trim() || null,
-        comment: comment.trim() || null,
+      // participant_id / participant_name / rating 은 서버가 결정한다.
+      // 클라이언트가 보낸 신원 정보를 신뢰하지 않기 위함.
+      const res = await fetch('/api/me/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          center_id: org.id,
+          program_rating: programRating,
+          leader_rating: leaderRating,
+          facility_rating: facilityRating,
+          wish_program: wishProgram.trim() || null,
+          comment: comment.trim() || null,
+        }),
+      })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null)
+        setError(payload?.error ?? '저장에 실패했습니다. 다시 시도해주세요.')
+        return
       }
-      const { error: upsertErr } = await supabase
-        .from('reviews')
-        .upsert(payload, { onConflict: 'participant_id,center_id' })
-      if (upsertErr) throw upsertErr
       onSaved?.()
       onClose()
-    } catch (e: any) {
-      const msg = (e?.message ?? '').toLowerCase()
-      if (msg.includes('failed to fetch') || msg.includes('network')) {
-        setError('네트워크 오류가 발생했습니다.')
-      } else {
-        setError('저장에 실패했습니다. 다시 시도해주세요.')
-      }
+    } catch {
+      setError('네트워크 오류가 발생했습니다.')
     } finally {
       setSaving(false)
     }
@@ -158,17 +151,18 @@ export default function ReviewModal({ open, onClose, org, participant, onSaved }
     setSaving(true)
     setError('')
     try {
-      const { error: delErr } = await supabase.from('reviews').delete().eq('id', existing.id)
-      if (delErr) throw delErr
+      // id 대신 centerId 를 보낸다 — 서버가 세션의 participant_id 와 함께
+      // 조건을 걸어 지우므로 남의 평가 id 를 넣어도 지워지지 않는다.
+      const res = await fetch(`/api/me/reviews?centerId=${org.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null)
+        setError(payload?.error ?? '삭제에 실패했습니다. 다시 시도해주세요.')
+        return
+      }
       onSaved?.()
       onClose()
-    } catch (e: any) {
-      const msg = (e?.message ?? '').toLowerCase()
-      if (msg.includes('failed to fetch') || msg.includes('network')) {
-        setError('네트워크 오류가 발생했습니다.')
-      } else {
-        setError('삭제에 실패했습니다. 다시 시도해주세요.')
-      }
+    } catch {
+      setError('네트워크 오류가 발생했습니다.')
     } finally {
       setSaving(false)
     }
