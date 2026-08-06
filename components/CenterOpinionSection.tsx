@@ -1,7 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, Save, MessageSquare, ImagePlus, X } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
 
 interface Props {
   centerId: number
@@ -108,14 +107,15 @@ export default function CenterOpinionSection({ centerId, canEdit }: Props) {
           alert(`파일이 너무 큽니다 (10MB 이하): ${file.name}`)
           continue
         }
-        const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
-        const path = `${centerId}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`
-        const { error: upErr } = await supabase.storage
-          .from(BUCKET)
-          .upload(path, file, { contentType: file.type, cacheControl: '3600', upsert: false })
-        if (upErr) throw upErr
-        const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path)
-        uploaded.push(pub.publicUrl)
+        // report-photos 버킷은 anon 쓰기가 차단되어 있다 — 서버가 올린다.
+        const form = new FormData()
+        form.append('file', file)
+        form.append('centerId', String(centerId))
+
+        const res = await fetch('/api/admin/report-photos', { method: 'POST', body: form })
+        const payload = await res.json().catch(() => null)
+        if (!res.ok) throw new Error(payload?.error ?? '사진 업로드에 실패했습니다.')
+        uploaded.push(payload.url as string)
       }
       if (uploaded.length > 0) {
         const next = [...photoUrls, ...uploaded]
@@ -132,12 +132,14 @@ export default function CenterOpinionSection({ centerId, canEdit }: Props) {
   async function handleDeletePhoto(url: string) {
     if (!confirm('이 사진을 삭제하시겠습니까?')) return
     try {
-      const marker = `/${BUCKET}/`
-      const idx = url.indexOf(marker)
-      if (idx >= 0) {
-        const p = url.slice(idx + marker.length)
-        const { error: rmErr } = await supabase.storage.from(BUCKET).remove([p])
-        if (rmErr) console.warn('[사진] Storage 제거 실패:', rmErr.message)
+      // Storage 파일 제거는 서버가 처리한다 (본인 기관 폴더인지도 서버가 검사).
+      const res = await fetch(
+        `/api/admin/report-photos?centerId=${centerId}&url=${encodeURIComponent(url)}`,
+        { method: 'DELETE' },
+      )
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null)
+        throw new Error(payload?.error ?? '사진 삭제에 실패했습니다.')
       }
       const next = photoUrls.filter(u => u !== url)
       await persistPhotos(next)

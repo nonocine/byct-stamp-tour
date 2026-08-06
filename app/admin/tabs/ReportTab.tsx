@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Upload, RefreshCw, FileText, ExternalLink, Trash2, Download,
 } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS } from '@/lib/data'
 import ReportManager from '@/components/ReportManager'
 import type { AdminUser } from '@/components/AdminProvider'
@@ -113,21 +112,16 @@ export default function ReportTab({ admin }: Props) {
 
     setGpUploading(true)
     try {
-      const path = `global/${Date.now()}.pdf`
-      const { error: upErr } = await supabase.storage
-        .from('program-plans')
-        .upload(path, file, { contentType: 'application/pdf', cacheControl: '3600', upsert: false })
-      if (upErr) throw upErr
+      // 업로드와 DB 기록을 서버가 한 번에 처리한다 (버킷 anon 쓰기 차단됨).
+      const form = new FormData()
+      form.append('file', file)
+      form.append('title', title)
+      form.append('uploadedBy', admin.name)
 
-      const { data: pub } = supabase.storage.from('program-plans').getPublicUrl(path)
-      const res = await fetch('/api/admin/global-plans', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, pdf_url: pub.publicUrl, uploaded_by: admin.name }),
-      })
+      const res = await fetch('/api/admin/global-plans', { method: 'POST', body: form })
       if (!res.ok) {
         const payload = await res.json().catch(() => null)
-        throw new Error(payload?.error ?? '계획서 정보 저장에 실패했습니다.')
+        throw new Error(payload?.error ?? '계획서 업로드에 실패했습니다.')
       }
 
       setGpTitle('')
@@ -143,13 +137,7 @@ export default function ReportTab({ admin }: Props) {
     if (admin.role !== 'super') return
     if (!confirm(`"${plan.title}" 전체 계획서를 삭제하시겠습니까?`)) return
     try {
-      const marker = '/program-plans/'
-      const idx = plan.pdf_url.indexOf(marker)
-      if (idx >= 0) {
-        const p = plan.pdf_url.slice(idx + marker.length)
-        const { error: rmErr } = await supabase.storage.from('program-plans').remove([p])
-        if (rmErr) console.warn('[전체 계획서] Storage 제거 실패:', rmErr.message)
-      }
+      // Storage 파일 제거도 서버가 함께 처리한다.
       const res = await fetch(`/api/admin/global-plans?id=${encodeURIComponent(plan.id)}`, {
         method: 'DELETE',
       })

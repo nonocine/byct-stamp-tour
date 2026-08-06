@@ -82,25 +82,16 @@ export default function ProgramTab({ admin }: Props) {
 
     setUploadingPdfProgramId(programId)
     try {
-      const path = `programs/${programId}-${Date.now()}.pdf`
-      const { error: uploadErr } = await supabase.storage
-        .from('program-plans')
-        .upload(path, file, {
-          cacheControl: '3600',
-          upsert: false,
-          contentType: 'application/pdf',
-        })
-      if (uploadErr) throw uploadErr
+      // program-plans 버킷은 anon 쓰기가 차단되어 있다 — 서버가 올린다.
+      const form = new FormData()
+      form.append('file', file)
+      form.append('programId', programId)
 
-      const { data: pub } = supabase.storage.from('program-plans').getPublicUrl(path)
-      const publicUrl = pub.publicUrl
+      const res = await fetch('/api/admin/programs/plan', { method: 'POST', body: form })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(payload?.error ?? 'PDF 업로드에 실패했습니다.')
 
-      const { error: dbErr } = await supabase
-        .from('programs')
-        .update({ plan_pdf_url: publicUrl })
-        .eq('id', programId)
-      if (dbErr) throw dbErr
-
+      const publicUrl = payload.plan_pdf_url as string
       setPrograms(prev =>
         prev.map(p => (p.id === programId ? { ...p, plan_pdf_url: publicUrl } : p)),
       )
@@ -122,19 +113,15 @@ export default function ProgramTab({ admin }: Props) {
 
     setUploadingPdfProgramId(program.id)
     try {
-      const marker = '/program-plans/'
-      const idx = program.plan_pdf_url.indexOf(marker)
-      if (idx >= 0) {
-        const path = program.plan_pdf_url.slice(idx + marker.length)
-        const { error: rmErr } = await supabase.storage.from('program-plans').remove([path])
-        if (rmErr) console.warn('[PDF 삭제] Storage 제거 실패:', rmErr.message)
+      // Storage 파일 제거와 컬럼 비우기를 서버가 함께 처리한다.
+      const res = await fetch(
+        `/api/admin/programs/plan?programId=${encodeURIComponent(program.id)}`,
+        { method: 'DELETE' },
+      )
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null)
+        throw new Error(payload?.error ?? 'PDF 삭제에 실패했습니다.')
       }
-
-      const { error: dbErr } = await supabase
-        .from('programs')
-        .update({ plan_pdf_url: null })
-        .eq('id', program.id)
-      if (dbErr) throw dbErr
 
       setPrograms(prev =>
         prev.map(p => (p.id === program.id ? { ...p, plan_pdf_url: null } : p)),

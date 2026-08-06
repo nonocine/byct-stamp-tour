@@ -43,48 +43,43 @@ export interface ProgramCreatePayload extends ProgramUpdatePayload {
   location: string
 }
 
+/** 라우트 응답에서 에러 메시지를 뽑아낸다. */
+async function readError(res: Response, fallback: string): Promise<string> {
+  const payload = await res.json().catch(() => null)
+  return payload?.error ?? fallback
+}
+
+// programs 쓰기는 RLS로 차단되어 있다. 생성/수정은 관리자 세션을 검증하는
+// /api/admin/programs 가 service_role 로 수행한다.
+// 읽기(fetchAllPrograms / fetchProgramsByOrg)는 공개 정책이 남아 있어 그대로 둔다.
+
 export async function createProgram(
   orgId: number,
   payload: ProgramCreatePayload,
 ): Promise<Program> {
-  const id = payload.id ?? `prog-${orgId}-${Date.now()}`
-  const { id: _omit, ...rest } = payload
-  const row = {
-    id,
-    organization_id: orgId,
-    ...rest,
-    updated_at: new Date().toISOString(),
-  }
-  const { data, error } = await supabase
-    .from('programs')
-    .insert(row)
-    .select()
-    .single()
-  if (error) throw error
-  return data as Program
+  const { location: _ignored, ...rest } = payload
+  const res = await fetch('/api/admin/programs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...rest, organization_id: orgId }),
+  })
+  if (!res.ok) throw new Error(await readError(res, '프로그램 생성에 실패했습니다.'))
+  const data = await res.json()
+  return data.program as Program
 }
 
 export async function updateProgram(
   programId: string,
-  ownerOrgId: number,
+  _ownerOrgId: number,
   payload: ProgramUpdatePayload,
 ): Promise<void> {
-  const { data: existing, error: fetchErr } = await supabase
-    .from('programs')
-    .select('organization_id')
-    .eq('id', programId)
-    .single()
-  if (fetchErr) throw fetchErr
-  if (!existing) throw new Error('프로그램을 찾을 수 없습니다.')
-  if (existing.organization_id !== ownerOrgId) {
-    throw new Error('본인 기관의 프로그램만 수정할 수 있습니다.')
-  }
-
-  const { error } = await supabase
-    .from('programs')
-    .update({ ...payload, updated_at: new Date().toISOString() })
-    .eq('id', programId)
-  if (error) throw error
+  // 소유 기관 검사는 서버가 DB 값을 기준으로 수행한다.
+  const res = await fetch('/api/admin/programs', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, id: programId }),
+  })
+  if (!res.ok) throw new Error(await readError(res, '프로그램 수정에 실패했습니다.'))
 }
 
 const MAX_DIMENSION = 1280
@@ -130,12 +125,18 @@ export async function uploadProgramImage(
   orgId: number,
   file: File,
 ): Promise<string> {
+  // 압축은 canvas 가 필요하므로 브라우저에 남기고, 결과만 서버로 보낸다.
+  // program-images 버킷은 anon 쓰기가 차단되어 있다.
   const blob = await compressImage(file)
-  const path = `${orgId}/${programId}-${Date.now()}.jpg`
-  const { error } = await supabase.storage
-    .from('program-images')
-    .upload(path, blob, { contentType: 'image/jpeg', upsert: true })
-  if (error) throw error
-  const { data } = supabase.storage.from('program-images').getPublicUrl(path)
-  return data.publicUrl
+
+  const form = new FormData()
+  form.append('file', blob, `${programId}.jpg`)
+  form.append('programId', programId)
+  form.append('orgId', String(orgId))
+
+  const res = await fetch('/api/admin/programs/image', { method: 'POST', body: form })
+  if (!res.ok) throw new Error(await readError(res, '이미지 업로드에 실패했습니다.'))
+
+  const data = await res.json()
+  return data.image_url as string
 }
