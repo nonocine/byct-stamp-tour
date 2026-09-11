@@ -193,7 +193,7 @@ export async function collectCenterReportData(
       .order('date', { ascending: true }),
     client
       .from('applications')
-      .select('id, status, applied_at, participant_id')
+      .select('id, status, applied_at')
       .eq('center_id', centerId),
     client
       .from('stamp_records')
@@ -242,23 +242,23 @@ export async function collectCenterReportData(
     waiting: apps.filter(a => a.status === 'waiting').length,
   }
 
-  const uniqueParticipants = new Set(
-    stamps.map(s => s.participant_id).filter(Boolean) as string[],
-  ).size
+  // 실제 스탬프를 받은 참가자 ID (중복 제거) — 참여 통계·연령 분포의 공통 기준
+  const stampParticipantIds = Array.from(
+    new Set(stamps.map(s => s.participant_id).filter(Boolean)),
+  ) as string[]
+  const uniqueParticipants = stampParticipantIds.length
 
   const rate = applications.approved > 0
     ? (stamps.length / applications.approved) * 100
     : 0
 
-  // 연령대 — 신청자/스탬프 받은 사람 전체의 birthdate 조회
-  const participantIds = Array.from(
-    new Set(
-      [...apps.map(a => a.participant_id), ...stamps.map(s => s.participant_id)].filter(Boolean),
-    ),
-  ) as string[]
+  // 연령대 — 실제 스탬프를 받은 참가자만 대상으로 birthdate 조회
   let profiles: any[] = []
-  if (participantIds.length > 0) {
-    const { data } = await client.from('profiles').select('id, birthdate').in('id', participantIds)
+  if (stampParticipantIds.length > 0) {
+    const { data } = await client
+      .from('profiles')
+      .select('id, birthdate')
+      .in('id', stampParticipantIds)
     profiles = data ?? []
   }
   const ageGroups = countAgeGroups(profiles.map(p => p.birthdate))
@@ -321,7 +321,7 @@ export async function collectGlobalReportData(
 ): Promise<GlobalReportData> {
   const [progRes, appRes, stampRes, reviewRes, profRes, gpRes] = await Promise.all([
     client.from('programs').select('id, organization_id'),
-    client.from('applications').select('id, status, center_id, participant_id'),
+    client.from('applications').select('id, status, center_id'),
     client.from('stamp_records').select('id, center_id, participant_id'),
     client.from('reviews').select('center_id, rating, program_rating, leader_rating, facility_rating'),
     client.from('profiles').select('id, birthdate'),
@@ -340,6 +340,11 @@ export async function collectGlobalReportData(
   const profiles = (profRes.data ?? []) as any[]
   const gp = gpRes.data ? (gpRes.data as any) : null
 
+  // 실제 스탬프를 받은 참가자 ID (중복 제거) — 참여 통계·연령 분포의 공통 기준
+  const stampParticipantIds = new Set(
+    stamps.map(s => s.participant_id).filter(Boolean) as string[],
+  )
+
   const totals = {
     organizations: ORGANIZATIONS.length,
     programs: programs.length,
@@ -349,7 +354,7 @@ export async function collectGlobalReportData(
     rejected: apps.filter(a => a.status === 'rejected').length,
     waiting: apps.filter(a => a.status === 'waiting').length,
     stamps: stamps.length,
-    uniqueParticipants: new Set(stamps.map(s => s.participant_id).filter(Boolean) as string[]).size,
+    uniqueParticipants: stampParticipantIds.size,
   }
 
   const rate = totals.approved > 0 ? (totals.stamps / totals.approved) * 100 : 0
@@ -410,7 +415,10 @@ export async function collectGlobalReportData(
     }
   })
 
-  const ageGroups = countAgeGroups(profiles.map(p => p.birthdate))
+  // 연령대 — 실제 스탬프를 받은 참가자의 프로필만 집계
+  const ageGroups = countAgeGroups(
+    profiles.filter(p => stampParticipantIds.has(p.id)).map(p => p.birthdate),
+  )
 
   // 전체 항목별 만족도 평균
   const overallAvgOf = (key: string): number | null => {
