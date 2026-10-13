@@ -164,12 +164,12 @@ ${topStamps.map((r, i) => `| ${i + 1} | ${r.name} | ${fmtNum(r.count)} |`).join(
 ${topRating.map((r, i) => `| ${i + 1} | ${r.name} | ⭐ ${r.avg.toFixed(1)} | ${fmtNum(r.count)} |`).join('\n')}`
     : '> 평가가 누적되지 않았습니다.'
 
-  const centerSummaryTable = `| 기관 | 프로그램 | 승인 | 스탬프 | 별점 |
+  const programSummaryTable = `| 일자 | 기관 | 프로그램명 | 스탬프 | 별점 |
 | --- | --- | --- | --- | --- |
-${data.centerSummary
+${data.programSummary
   .map(
     r =>
-      `| ${r.name} | ${fmtNum(r.programs)} | ${fmtNum(r.approved)} | ${fmtNum(r.stamps)} | ${r.avgRating !== null ? `⭐${r.avgRating.toFixed(1)}` : '-'} |`,
+      `| ${r.date ?? '-'} | ${r.centerName} | ${r.programTitle} | ${fmtNum(r.stamps)} | ${r.avgRating !== null ? `⭐${r.avgRating.toFixed(1)}` : '-'} |`,
   )
   .join('\n')}`
 
@@ -214,7 +214,7 @@ ${planBlock}
 
 ## 2. 기관별 종합 통계
 
-${centerSummaryTable}
+${programSummaryTable}
 
 ## 3. 스탬프 발급 순위 (Top ${topStamps.length})
 

@@ -105,11 +105,12 @@ export interface GlobalReportData {
     byStamps: CenterRanking[]
     byRating: CenterRatingRanking[]
   }
-  centerSummary: {
+  // 기관별 종합 통계 — 프로그램 단위 행, 계획 일자(programs.date) 오름차순
+  programSummary: {
+    date: string | null
     centerId: number
-    name: string
-    programs: number
-    approved: number
+    centerName: string
+    programTitle: string
     stamps: number
     avgRating: number | null
   }[]
@@ -320,9 +321,9 @@ export async function collectGlobalReportData(
   client: SupabaseClient,
 ): Promise<GlobalReportData> {
   const [progRes, appRes, stampRes, reviewRes, profRes, gpRes] = await Promise.all([
-    client.from('programs').select('id, organization_id'),
+    client.from('programs').select('id, organization_id, title, date'),
     client.from('applications').select('id, status, center_id'),
-    client.from('stamp_records').select('id, center_id, participant_id'),
+    client.from('stamp_records').select('id, center_id, participant_id, program_title'),
     client.from('reviews').select('center_id, rating, program_rating, leader_rating, facility_rating'),
     client.from('profiles').select('id, birthdate'),
     client
@@ -364,17 +365,6 @@ export async function collectGlobalReportData(
     if (typeof s.center_id !== 'number') continue
     stampsByCenter.set(s.center_id, (stampsByCenter.get(s.center_id) ?? 0) + 1)
   }
-  const programsByCenter = new Map<number, number>()
-  for (const p of programs) {
-    if (typeof p.organization_id !== 'number') continue
-    programsByCenter.set(p.organization_id, (programsByCenter.get(p.organization_id) ?? 0) + 1)
-  }
-  const approvedByCenter = new Map<number, number>()
-  for (const a of apps) {
-    if (a.status !== 'approved') continue
-    if (typeof a.center_id !== 'number') continue
-    approvedByCenter.set(a.center_id, (approvedByCenter.get(a.center_id) ?? 0) + 1)
-  }
   const ratingsByCenter = new Map<number, number[]>()
   for (const r of reviews) {
     if (typeof r.center_id !== 'number') continue
@@ -402,18 +392,54 @@ export async function collectGlobalReportData(
     .filter(r => r.count > 0)
     .sort((a, b) => b.avg - a.avg)
 
-  const centerSummary = ORGANIZATIONS.map(o => {
+  // 프로그램 단위 통계 — 일자는 계획 날짜(programs.date) 기준 (stamped_at 은 몰아 찍는 경우가 있어 사용하지 않음)
+  type SummaryRow = GlobalReportData['programSummary'][number]
+  const programSummary: SummaryRow[] = []
+  const unscheduledRows: SummaryRow[] = []
+  const inactiveRows: SummaryRow[] = []
+  ORGANIZATIONS.forEach(o => {
     const arr = ratingsByCenter.get(o.id) ?? []
     const avg = arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null
-    return {
-      centerId: o.id,
-      name: o.name,
-      programs: programsByCenter.get(o.id) ?? 0,
-      approved: approvedByCenter.get(o.id) ?? 0,
-      stamps: stampsByCenter.get(o.id) ?? 0,
-      avgRating: avg !== null ? Math.round(avg * 10) / 10 : null,
+    const avgRating = avg !== null ? Math.round(avg * 10) / 10 : null
+
+    const orgPrograms = programs
+      .filter(p => p.organization_id === o.id)
+      .map(p => ({ title: (p.title ?? '') as string, date: (p.date || null) as string | null, stamps: 0 }))
+    const orgStamps = stamps.filter(s => s.center_id === o.id)
+
+    if (orgPrograms.length === 0) {
+      inactiveRows.push({ date: null, centerId: o.id, centerName: o.name, programTitle: '-', stamps: orgStamps.length, avgRating })
+      return
+    }
+
+    const extra = new Map<string, number>() // 프로그램 목록에 없는 program_title
+    let untitled = 0
+    for (const s of orgStamps) {
+      const title = typeof s.program_title === 'string' ? s.program_title.trim() : ''
+      if (!title) {
+        if (orgPrograms.length === 1) orgPrograms[0].stamps++
+        else untitled++
+        continue
+      }
+      const match = orgPrograms.find(p => p.title.trim() === title)
+      if (match) match.stamps++
+      else extra.set(title, (extra.get(title) ?? 0) + 1)
+    }
+
+    for (const p of orgPrograms) {
+      const row = { date: p.date, centerId: o.id, centerName: o.name, programTitle: p.title || '-', stamps: p.stamps, avgRating }
+      ;(p.date ? programSummary : unscheduledRows).push(row)
+    }
+    extra.forEach((count, title) => {
+      unscheduledRows.push({ date: null, centerId: o.id, centerName: o.name, programTitle: title, stamps: count, avgRating })
+    })
+    if (untitled > 0) {
+      unscheduledRows.push({ date: null, centerId: o.id, centerName: o.name, programTitle: '미기재', stamps: untitled, avgRating })
     }
   })
+  // 일자 오름차순 (같은 날짜는 기관 순서 유지), 날짜 없는 행 → 미운영 기관 순으로 맨 아래
+  programSummary.sort((a, b) => (a.date as string).localeCompare(b.date as string))
+  programSummary.push(...unscheduledRows, ...inactiveRows)
 
   // 연령대 — 실제 스탬프를 받은 참가자의 프로필만 집계
   const ageGroups = countAgeGroups(
@@ -439,7 +465,7 @@ export async function collectGlobalReportData(
     participation: { rate: Math.round(rate * 10) / 10 },
     satisfaction,
     centerRankings: { byStamps, byRating },
-    centerSummary,
+    programSummary,
     ageGroups,
     latestGlobalPlan: gp
       ? {
