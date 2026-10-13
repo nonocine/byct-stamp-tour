@@ -331,7 +331,7 @@ export async function collectGlobalReportData(
   const [progRes, appRes, stampRes, reviewRes, profRes, gpRes] = await Promise.all([
     client.from('programs').select('id, organization_id, title, date'),
     client.from('applications').select('id, status, center_id'),
-    client.from('stamp_records').select('id, center_id, participant_id, program_title'),
+    client.from('stamp_records').select('id, center_id, participant_id, program_title, program_id'),
     client.from('reviews').select('center_id, rating, program_rating, leader_rating, facility_rating'),
     client.from('profiles').select('id, birthdate'),
     client
@@ -401,7 +401,8 @@ export async function collectGlobalReportData(
     .sort((a, b) => b.avg - a.avg)
 
   // 프로그램 단위 통계 — 일자는 계획 날짜(programs.date) 기준 (stamped_at 은 몰아 찍는 경우가 있어 사용하지 않음)
-  // 회차·오전/오후로 나뉜 프로그램은 정규화된 이름으로 한 행에 합치고, 스탬프도 정규화된 이름으로 매칭
+  // 스탬프 매칭 우선순위: ① stamp_records.program_id = programs.id (회차별 행 분리)
+  //                      ② 정규화된 이름 (회차·오전/오후 접미사 제거) — 이 경우 같은 이름의 회차는 한 행으로 병합
   type SummaryRow = GlobalReportData['programSummary'][number]
   const datedRows: { firstDate: string; row: SummaryRow }[] = []
   const unscheduledRows: SummaryRow[] = []
@@ -411,31 +412,54 @@ export async function collectGlobalReportData(
     const avg = arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null
     const avgRating = avg !== null ? Math.round(avg * 10) / 10 : null
 
-    const groups = new Map<string, { title: string; dates: Set<string>; stamps: number }>()
-    for (const p of programs) {
-      if (p.organization_id !== o.id) continue
-      const key = normalizeProgramTitle(p.title ?? '')
-      const g = groups.get(key) ?? { title: key || '-', dates: new Set<string>(), stamps: 0 }
-      if (p.date) g.dates.add(p.date)
-      groups.set(key, g)
-    }
+    const orgPrograms = programs.filter(p => p.organization_id === o.id)
     const orgStamps = stamps.filter(s => s.center_id === o.id)
 
-    if (groups.size === 0) {
+    if (orgPrograms.length === 0) {
       inactiveRows.push({ dates: [], centerId: o.id, centerName: o.name, programTitle: '-', stamps: orgStamps.length, avgRating })
       return
+    }
+
+    // program_id 로 직접 매칭되는 프로그램은 회차별로 독립된 행
+    const orgProgramIds = new Set(orgPrograms.map(p => p.id as string))
+    const idMatched = new Set(
+      orgStamps.map(s => s.program_id).filter((id: any) => typeof id === 'string' && orgProgramIds.has(id)),
+    )
+
+    type Group = { title: string; nameKey: string; dates: Set<string>; stamps: number }
+    const groups = new Map<string, Group>() // key: "id:<programs.id>" | "name:<정규화된 이름>"
+    for (const p of orgPrograms) {
+      const nameKey = normalizeProgramTitle(p.title ?? '')
+      const key = idMatched.has(p.id) ? `id:${p.id}` : `name:${nameKey}`
+      const g = groups.get(key) ?? {
+        title: (idMatched.has(p.id) ? (p.title ?? '').trim() : nameKey) || '-',
+        nameKey,
+        dates: new Set<string>(),
+        stamps: 0,
+      }
+      if (p.date) g.dates.add(p.date)
+      groups.set(key, g)
     }
 
     const extra = new Map<string, number>() // 등록 프로그램과 매칭되지 않는 program_title
     let untitled = 0
     for (const s of orgStamps) {
+      if (typeof s.program_id === 'string' && idMatched.has(s.program_id)) {
+        groups.get(`id:${s.program_id}`)!.stamps++
+        continue
+      }
       const key = typeof s.program_title === 'string' ? normalizeProgramTitle(s.program_title) : ''
       if (!key) {
         if (groups.size === 1) groups.values().next().value!.stamps++
         else untitled++
         continue
       }
-      const g = groups.get(key)
+      const g = groups.get(`name:${key}`)
+        // 이름이 회차별로 분리된 프로그램과만 일치하면, 그런 회차가 하나일 때만 귀속
+        ?? (() => {
+          const split = Array.from(groups.entries()).filter(([k, v]) => k.startsWith('id:') && v.nameKey === key)
+          return split.length === 1 ? split[0][1] : undefined
+        })()
       if (g) g.stamps++
       else extra.set(key, (extra.get(key) ?? 0) + 1)
     }
