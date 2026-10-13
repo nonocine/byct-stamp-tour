@@ -114,6 +114,13 @@ export interface GlobalReportData {
     stamps: number
     avgRating: number | null
   }[]
+  // 기관별 종합 통계 표 아래 합계 요약
+  programSummaryTotals: {
+    stamps: number // 표의 모든 행 스탬프 합계
+    programs: number // 프로그램 행 개수 (미운영 기관·미기재 행 제외)
+    centers: number // 스탬프가 1건 이상인 기관 수
+    avgRating: number | null // 기관별 별점의 단순 평균 (별점 없는 기관 제외)
+  }
   ageGroups: AgeGroups
   latestGlobalPlan: {
     id: string
@@ -481,6 +488,22 @@ export async function collectGlobalReportData(
   datedRows.sort((a, b) => a.firstDate.localeCompare(b.firstDate))
   const programSummary: SummaryRow[] = [...datedRows.map(d => d.row), ...unscheduledRows, ...inactiveRows]
 
+  const stampsByCenterInTable = new Map<number, number>()
+  const ratingByCenterInTable = new Map<number, number>()
+  for (const r of programSummary) {
+    stampsByCenterInTable.set(r.centerId, (stampsByCenterInTable.get(r.centerId) ?? 0) + r.stamps)
+    if (r.avgRating !== null) ratingByCenterInTable.set(r.centerId, r.avgRating)
+  }
+  const centerRatings = Array.from(ratingByCenterInTable.values())
+  const programSummaryTotals = {
+    stamps: programSummary.reduce((sum, r) => sum + r.stamps, 0),
+    programs: programSummary.length - inactiveRows.length - programSummary.filter(r => r.programTitle === '미기재').length,
+    centers: Array.from(stampsByCenterInTable.values()).filter(n => n > 0).length,
+    avgRating: centerRatings.length > 0
+      ? Math.round((centerRatings.reduce((a, b) => a + b, 0) / centerRatings.length) * 10) / 10
+      : null,
+  }
+
   // 연령대 — 실제 스탬프를 받은 참가자의 프로필만 집계
   const ageGroups = countAgeGroups(
     profiles.filter(p => stampParticipantIds.has(p.id)).map(p => p.birthdate),
@@ -506,6 +529,7 @@ export async function collectGlobalReportData(
     satisfaction,
     centerRankings: { byStamps, byRating },
     programSummary,
+    programSummaryTotals,
     ageGroups,
     latestGlobalPlan: gp
       ? {

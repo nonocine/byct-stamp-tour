@@ -173,6 +173,9 @@ ${data.programSummary
   )
   .join('\n')}`
 
+  const st = data.programSummaryTotals
+  const programSummaryTotalsLine = `> **합계** — 총 스탬프 ${fmtNum(st.stamps)}건 · 총 프로그램 ${fmtNum(st.programs)}개 · 참여 기관 ${fmtNum(st.centers)}곳 · 전체 평균 별점 ${st.avgRating !== null ? `⭐ ${st.avgRating.toFixed(1)}` : '평가 없음'}`
+
   const planBlock = data.latestGlobalPlan
     ? `> **최신 전체 계획서**: ${data.latestGlobalPlan.title} _(업로드: ${data.latestGlobalPlan.uploadedBy})_
 >
@@ -215,6 +218,8 @@ ${planBlock}
 ## 2. 기관별 종합 통계
 
 ${programSummaryTable}
+
+${programSummaryTotalsLine}
 
 ## 3. 스탬프 발급 순위 (Top ${topStamps.length})
 
