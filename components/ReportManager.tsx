@@ -69,7 +69,7 @@ function renderMarkdown(md: string): string {
       }
       out.push(
         `<table><thead><tr>${headers.map(h => `<th>${renderInline(h)}</th>`).join('')}</tr></thead><tbody>` +
-          rows.map(r => `<tr>${r.map(c => `<td>${renderInline(c)}</td>`).join('')}</tr>`).join('') +
+          rows.map(r => `<tr>${r.map(c => `<td>${c.split(/<br\s*\/?>/i).map(renderInline).join('<br>')}</td>`).join('')}</tr>`).join('') +
           `</tbody></table>`,
       )
       continue

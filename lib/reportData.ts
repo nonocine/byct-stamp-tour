@@ -107,7 +107,7 @@ export interface GlobalReportData {
   }
   // 기관별 종합 통계 — 프로그램 단위 행, 계획 일자(programs.date) 오름차순
   programSummary: {
-    date: string | null // 회차 날짜 목록 표시용 (예: "2026-08-29, 09-05, 09-12")
+    dates: string[] // 회차 계획 날짜 (오름차순)
     centerId: number
     centerName: string
     programTitle: string
@@ -325,13 +325,6 @@ function normalizeProgramTitle(title: string): string {
   return t.replace(/\s+/g, ' ')
 }
 
-// ["2026-08-29", "2026-09-05"] → "2026-08-29, 09-05" (첫 날짜와 같은 연도면 연도 생략)
-function formatDateList(dates: string[]): string | null {
-  if (dates.length === 0) return null
-  const year = dates[0].slice(0, 4)
-  return dates.map((d, i) => (i > 0 && d.startsWith(`${year}-`) ? d.slice(5) : d)).join(', ')
-}
-
 export async function collectGlobalReportData(
   client: SupabaseClient,
 ): Promise<GlobalReportData> {
@@ -429,7 +422,7 @@ export async function collectGlobalReportData(
     const orgStamps = stamps.filter(s => s.center_id === o.id)
 
     if (groups.size === 0) {
-      inactiveRows.push({ date: null, centerId: o.id, centerName: o.name, programTitle: '-', stamps: orgStamps.length, avgRating })
+      inactiveRows.push({ dates: [], centerId: o.id, centerName: o.name, programTitle: '-', stamps: orgStamps.length, avgRating })
       return
     }
 
@@ -449,15 +442,15 @@ export async function collectGlobalReportData(
 
     groups.forEach(g => {
       const dates = Array.from(g.dates).sort()
-      const row = { date: formatDateList(dates), centerId: o.id, centerName: o.name, programTitle: g.title, stamps: g.stamps, avgRating }
+      const row = { dates, centerId: o.id, centerName: o.name, programTitle: g.title, stamps: g.stamps, avgRating }
       if (dates.length > 0) datedRows.push({ firstDate: dates[0], row })
       else unscheduledRows.push(row)
     })
     extra.forEach((count, title) => {
-      unscheduledRows.push({ date: null, centerId: o.id, centerName: o.name, programTitle: title, stamps: count, avgRating })
+      unscheduledRows.push({ dates: [], centerId: o.id, centerName: o.name, programTitle: title, stamps: count, avgRating })
     })
     if (untitled > 0) {
-      unscheduledRows.push({ date: null, centerId: o.id, centerName: o.name, programTitle: '미기재', stamps: untitled, avgRating })
+      unscheduledRows.push({ dates: [], centerId: o.id, centerName: o.name, programTitle: '미기재', stamps: untitled, avgRating })
     }
   })
   // 첫 날짜 오름차순 (같은 날짜는 기관 순서 유지), 날짜 없는 행 → 미운영 기관 순으로 맨 아래

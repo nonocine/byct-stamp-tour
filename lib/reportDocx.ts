@@ -120,7 +120,8 @@ function tableFromMd(headers: string[], rows: string[][]): Table {
   })
   const dataRows = rows.map(cells => new TableRow({
     children: cells.map(c => new TableCell({
-      children: [new Paragraph({ children: toTextRuns(parseInline(c)) })],
+      // 셀 안의 <br> 은 줄바꿈(문단 분리)으로 처리
+      children: c.split(/<br\s*\/?>/i).map(part => new Paragraph({ children: toTextRuns(parseInline(part.trim())) })),
     })),
   }))
   return new Table({

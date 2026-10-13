@@ -169,7 +169,7 @@ ${topRating.map((r, i) => `| ${i + 1} | ${r.name} | ⭐ ${r.avg.toFixed(1)} | ${
 ${data.programSummary
   .map(
     r =>
-      `| ${r.date ?? '-'} | ${r.centerName} | ${r.programTitle} | ${fmtNum(r.stamps)} | ${r.avgRating !== null ? `⭐${r.avgRating.toFixed(1)}` : '-'} |`,
+      `| ${r.dates.length > 0 ? r.dates.join('<br>') : '-'} | ${r.centerName} | ${r.programTitle} | ${fmtNum(r.stamps)} | ${r.avgRating !== null ? `⭐${r.avgRating.toFixed(1)}` : '-'} |`,
   )
   .join('\n')}`
 
