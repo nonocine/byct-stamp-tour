@@ -107,7 +107,7 @@ export interface GlobalReportData {
   }
   // 기관별 종합 통계 — 프로그램 단위 행, 계획 일자(programs.date) 오름차순
   programSummary: {
-    date: string | null
+    date: string | null // 회차 날짜 목록 표시용 (예: "2026-08-29, 09-05, 09-12")
     centerId: number
     centerName: string
     programTitle: string
@@ -317,6 +317,21 @@ export async function collectCenterReportData(
 
 // ────────────────────────────────────────────────────────────────────────────
 
+// "_오전", "_오후", "(1회)", "(오전)" 같은 회차·시간대 접미사를 제거해 같은 프로그램으로 묶기 위한 키
+function normalizeProgramTitle(title: string): string {
+  let t = title.trim()
+  const suffix = /\s*(?:[_\-]\s*(?:오전|오후)|\(\s*(?:\d+\s*회|오전|오후)\s*\))$/
+  while (suffix.test(t)) t = t.replace(suffix, '').trim()
+  return t.replace(/\s+/g, ' ')
+}
+
+// ["2026-08-29", "2026-09-05"] → "2026-08-29, 09-05" (첫 날짜와 같은 연도면 연도 생략)
+function formatDateList(dates: string[]): string | null {
+  if (dates.length === 0) return null
+  const year = dates[0].slice(0, 4)
+  return dates.map((d, i) => (i > 0 && d.startsWith(`${year}-`) ? d.slice(5) : d)).join(', ')
+}
+
 export async function collectGlobalReportData(
   client: SupabaseClient,
 ): Promise<GlobalReportData> {
@@ -393,8 +408,9 @@ export async function collectGlobalReportData(
     .sort((a, b) => b.avg - a.avg)
 
   // 프로그램 단위 통계 — 일자는 계획 날짜(programs.date) 기준 (stamped_at 은 몰아 찍는 경우가 있어 사용하지 않음)
+  // 회차·오전/오후로 나뉜 프로그램은 정규화된 이름으로 한 행에 합치고, 스탬프도 정규화된 이름으로 매칭
   type SummaryRow = GlobalReportData['programSummary'][number]
-  const programSummary: SummaryRow[] = []
+  const datedRows: { firstDate: string; row: SummaryRow }[] = []
   const unscheduledRows: SummaryRow[] = []
   const inactiveRows: SummaryRow[] = []
   ORGANIZATIONS.forEach(o => {
@@ -402,34 +418,41 @@ export async function collectGlobalReportData(
     const avg = arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null
     const avgRating = avg !== null ? Math.round(avg * 10) / 10 : null
 
-    const orgPrograms = programs
-      .filter(p => p.organization_id === o.id)
-      .map(p => ({ title: (p.title ?? '') as string, date: (p.date || null) as string | null, stamps: 0 }))
+    const groups = new Map<string, { title: string; dates: Set<string>; stamps: number }>()
+    for (const p of programs) {
+      if (p.organization_id !== o.id) continue
+      const key = normalizeProgramTitle(p.title ?? '')
+      const g = groups.get(key) ?? { title: key || '-', dates: new Set<string>(), stamps: 0 }
+      if (p.date) g.dates.add(p.date)
+      groups.set(key, g)
+    }
     const orgStamps = stamps.filter(s => s.center_id === o.id)
 
-    if (orgPrograms.length === 0) {
+    if (groups.size === 0) {
       inactiveRows.push({ date: null, centerId: o.id, centerName: o.name, programTitle: '-', stamps: orgStamps.length, avgRating })
       return
     }
 
-    const extra = new Map<string, number>() // 프로그램 목록에 없는 program_title
+    const extra = new Map<string, number>() // 등록 프로그램과 매칭되지 않는 program_title
     let untitled = 0
     for (const s of orgStamps) {
-      const title = typeof s.program_title === 'string' ? s.program_title.trim() : ''
-      if (!title) {
-        if (orgPrograms.length === 1) orgPrograms[0].stamps++
+      const key = typeof s.program_title === 'string' ? normalizeProgramTitle(s.program_title) : ''
+      if (!key) {
+        if (groups.size === 1) groups.values().next().value!.stamps++
         else untitled++
         continue
       }
-      const match = orgPrograms.find(p => p.title.trim() === title)
-      if (match) match.stamps++
-      else extra.set(title, (extra.get(title) ?? 0) + 1)
+      const g = groups.get(key)
+      if (g) g.stamps++
+      else extra.set(key, (extra.get(key) ?? 0) + 1)
     }
 
-    for (const p of orgPrograms) {
-      const row = { date: p.date, centerId: o.id, centerName: o.name, programTitle: p.title || '-', stamps: p.stamps, avgRating }
-      ;(p.date ? programSummary : unscheduledRows).push(row)
-    }
+    groups.forEach(g => {
+      const dates = Array.from(g.dates).sort()
+      const row = { date: formatDateList(dates), centerId: o.id, centerName: o.name, programTitle: g.title, stamps: g.stamps, avgRating }
+      if (dates.length > 0) datedRows.push({ firstDate: dates[0], row })
+      else unscheduledRows.push(row)
+    })
     extra.forEach((count, title) => {
       unscheduledRows.push({ date: null, centerId: o.id, centerName: o.name, programTitle: title, stamps: count, avgRating })
     })
@@ -437,9 +460,9 @@ export async function collectGlobalReportData(
       unscheduledRows.push({ date: null, centerId: o.id, centerName: o.name, programTitle: '미기재', stamps: untitled, avgRating })
     }
   })
-  // 일자 오름차순 (같은 날짜는 기관 순서 유지), 날짜 없는 행 → 미운영 기관 순으로 맨 아래
-  programSummary.sort((a, b) => (a.date as string).localeCompare(b.date as string))
-  programSummary.push(...unscheduledRows, ...inactiveRows)
+  // 첫 날짜 오름차순 (같은 날짜는 기관 순서 유지), 날짜 없는 행 → 미운영 기관 순으로 맨 아래
+  datedRows.sort((a, b) => a.firstDate.localeCompare(b.firstDate))
+  const programSummary: SummaryRow[] = [...datedRows.map(d => d.row), ...unscheduledRows, ...inactiveRows]
 
   // 연령대 — 실제 스탬프를 받은 참가자의 프로필만 집계
   const ageGroups = countAgeGroups(
