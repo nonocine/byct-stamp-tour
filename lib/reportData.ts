@@ -487,6 +487,10 @@ export async function collectGlobalReportData(
   // 첫 날짜 오름차순 (같은 날짜는 기관 순서 유지), 날짜 없는 행 → 미운영 기관 순으로 맨 아래
   datedRows.sort((a, b) => a.firstDate.localeCompare(b.firstDate))
   const programSummary: SummaryRow[] = [...datedRows.map(d => d.row), ...unscheduledRows, ...inactiveRows]
+  // 스탬프 0건 행은 기관 평균 별점을 표시하지 않음
+  for (const r of programSummary) {
+    if (r.stamps === 0) r.avgRating = null
+  }
 
   const stampsByCenterInTable = new Map<number, number>()
   const ratingByCenterInTable = new Map<number, number>()
