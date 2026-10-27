@@ -6,11 +6,15 @@
  * 다른 기관의 현장 사진을 올리거나 삭제할 수 있었다.
  *
  * photo_urls 배열 반영은 /api/admin/center-report(PUT) 이 담당한다.
+ *
+ * 비공개 버킷(2026-10): 올리면 공개 URL 대신 버킷 안 경로를 돌려준다. 보기는
+ * /api/admin/storage-file(로그인 확인 → 1시간 서명 URL). 예전 공개 URL 값도 그대로 처리한다.
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { readAdminSession } from '@/lib/adminSession'
-import { UploadError, extractStoragePath, readUpload, safeExtension } from '@/lib/storageServer'
+import { UploadError, readUpload, safeExtension } from '@/lib/storageServer'
+import { storageRefPath } from '@/lib/storageRef'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -80,18 +84,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `사진 업로드 실패: ${upErr.message}` }, { status: 500 })
   }
 
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path)
-  return NextResponse.json({ url: data.publicUrl })
+  return NextResponse.json({ path })
 }
 
-/** DELETE /api/admin/report-photos?centerId=N&url=... */
+/** DELETE /api/admin/report-photos?centerId=N&ref=... (ref = 저장된 경로 또는 예전 공개 URL) */
 export async function DELETE(req: NextRequest) {
   const params = req.nextUrl.searchParams
   const centerId = Number(params.get('centerId'))
-  const url = params.get('url') ?? ''
+  const ref = params.get('ref') ?? ''
 
-  if (!Number.isInteger(centerId) || !url) {
-    return NextResponse.json({ error: 'centerId 와 url 이 필요합니다.' }, { status: 400 })
+  if (!Number.isInteger(centerId) || !ref) {
+    return NextResponse.json({ error: 'centerId 와 ref 가 필요합니다.' }, { status: 400 })
   }
   if (!canWrite(req, centerId)) {
     return NextResponse.json(
@@ -100,7 +103,7 @@ export async function DELETE(req: NextRequest) {
     )
   }
 
-  const path = extractStoragePath(url, BUCKET)
+  const path = storageRefPath(ref, BUCKET)
   if (!path) {
     return NextResponse.json({ error: '사진 경로를 확인할 수 없습니다.' }, { status: 400 })
   }

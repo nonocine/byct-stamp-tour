@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
+import { storageViewUrl } from '@/lib/storageRef'
 import { RefreshCw, Download, FileText, Save, Eye, Edit2 } from 'lucide-react'
 import { generateCenterReport, generateGlobalReport } from '@/lib/reportGenerator'
 import { downloadReportAsDocx } from '@/lib/reportDocx'
@@ -199,7 +200,12 @@ export default function ReportManager({
         }
       }
 
-      await downloadReportAsDocx(markdown, `${base}.docx`, photoUrls)
+      // 비공개 버킷 — 서버가 로그인·기관 권한 확인 후 직접 내려받은 사진을 넣는다(raw).
+      await downloadReportAsDocx(
+        markdown,
+        `${base}.docx`,
+        photoUrls.map(u => storageViewUrl('report-photos', u, { raw: true })),
+      )
     } catch (e: any) {
       alert(`Word 파일 생성 실패: ${e?.message ?? e}`)
     } finally {

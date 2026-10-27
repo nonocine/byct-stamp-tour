@@ -7,6 +7,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { canAccessCenter, readAdminSession } from '@/lib/adminSession'
+import { storageRefPath } from '@/lib/storageRef'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -97,7 +98,11 @@ export async function PUT(req: NextRequest) {
     if (!Array.isArray(body.photo_urls)) {
       return NextResponse.json({ error: 'photo_urls 는 배열이어야 합니다.' }, { status: 400 })
     }
-    const urls = body.photo_urls.filter((u): u is string => typeof u === 'string').slice(0, 5)
+    // 값은 버킷 안 경로(또는 예전 공개 URL). 본인 기관 폴더({centerId}/...) 것만 받는다.
+    const urls = body.photo_urls
+      .filter((u): u is string => typeof u === 'string')
+      .filter(u => storageRefPath(u, 'report-photos')?.startsWith(`${centerId}/`))
+      .slice(0, 5)
     patch.photo_urls = urls
   }
 

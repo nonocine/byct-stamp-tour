@@ -7,7 +7,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { readSuperAdminSession } from '@/lib/adminSession'
-import { UploadError, extractStoragePath, readUpload } from '@/lib/storageServer'
+import { UploadError, readUpload } from '@/lib/storageServer'
+import { storageRefPath } from '@/lib/storageRef'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -103,11 +104,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `업로드 실패: ${upErr.message}` }, { status: 500 })
   }
 
-  const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path)
-
+  // 비공개 버킷(2026-10) — 공개 URL 대신 경로를 저장. 보기는 /api/admin/storage-file.
   const { error } = await supabase
     .from('global_plans')
-    .insert({ title, pdf_url: pub.publicUrl, uploaded_by: uploadedBy })
+    .insert({ title, pdf_url: path, uploaded_by: uploadedBy })
 
   if (error) {
     // DB 반영 실패 시 방금 올린 파일은 고아가 된다 — 정리한다.
@@ -141,7 +141,7 @@ export async function DELETE(req: NextRequest) {
     .maybeSingle()
 
   if (plan?.pdf_url) {
-    const path = extractStoragePath(plan.pdf_url as string, BUCKET)
+    const path = storageRefPath(plan.pdf_url as string, BUCKET)
     if (path) {
       const { error: rmErr } = await supabase.storage.from(BUCKET).remove([path])
       if (rmErr) console.warn('[admin/global-plans] Storage 제거 실패:', rmErr.message)

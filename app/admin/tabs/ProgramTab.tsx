@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import { storageViewUrl } from '@/lib/storageRef'
 import {
   Edit2, RefreshCw, PlusCircle, Image as ImageIcon, Upload, FileText, ExternalLink, Trash2,
 } from 'lucide-react'
@@ -91,9 +92,9 @@ export default function ProgramTab({ admin }: Props) {
       const payload = await res.json().catch(() => null)
       if (!res.ok) throw new Error(payload?.error ?? 'PDF 업로드에 실패했습니다.')
 
-      const publicUrl = payload.plan_pdf_url as string
+      const planRef = payload.plan_pdf_url as string // 버킷 안 경로(비공개 버킷)
       setPrograms(prev =>
-        prev.map(p => (p.id === programId ? { ...p, plan_pdf_url: publicUrl } : p)),
+        prev.map(p => (p.id === programId ? { ...p, plan_pdf_url: planRef } : p)),
       )
     } catch (err: any) {
       alert(`PDF 업로드 실패: ${err?.message ?? err}`)
@@ -372,7 +373,7 @@ export default function ProgramTab({ admin }: Props) {
                                           )}
                                         </button>
                                         <a
-                                          href={program.plan_pdf_url}
+                                          href={storageViewUrl('program-plans', program.plan_pdf_url)}
                                           target="_blank"
                                           rel="noopener noreferrer"
                                           className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-semibold rounded-lg hover:bg-blue-100 active:scale-95 transition-all"

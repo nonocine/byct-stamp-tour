@@ -1,4 +1,10 @@
 import type { CenterReportData, GlobalReportData, AgeGroups } from './reportData'
+import { storageViewUrl } from '@/lib/storageRef'
+
+// 계획서 링크 — 비공개 버킷이라 앱 열람 경로(관리자 로그인 필요)로 보낸다.
+// Word 로 내려받은 문서에서도 눌리도록 절대 주소.
+const planLink = (ref: string) =>
+  `${typeof window !== 'undefined' ? window.location.origin : ''}${storageViewUrl('program-plans', ref)}`
 
 function fmtNum(n: number): string {
   return n.toLocaleString('ko-KR')
@@ -179,7 +185,7 @@ ${data.programSummary
   const planBlock = data.latestGlobalPlan
     ? `> **최신 전체 계획서**: ${data.latestGlobalPlan.title} _(업로드: ${data.latestGlobalPlan.uploadedBy})_
 >
-> [PDF 보기 →](${data.latestGlobalPlan.pdfUrl})`
+> [PDF 보기 →](${planLink(data.latestGlobalPlan.pdfUrl)})`
     : '> 등록된 전체 계획서가 없습니다.'
 
   let totalRatingSum = 0

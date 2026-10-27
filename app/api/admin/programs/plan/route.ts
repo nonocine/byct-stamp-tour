@@ -8,7 +8,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin'
 import { canAccessCenter, readAdminSession } from '@/lib/adminSession'
-import { UploadError, extractStoragePath, readUpload } from '@/lib/storageServer'
+import { UploadError, readUpload } from '@/lib/storageServer'
+import { storageRefPath } from '@/lib/storageRef'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -97,12 +98,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `업로드 실패: ${upErr.message}` }, { status: 500 })
   }
 
-  const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path)
-  const publicUrl = pub.publicUrl
+  // 비공개 버킷(2026-10) — 공개 URL 대신 경로를 저장. 보기는 /api/admin/storage-file.
 
   const { error: dbErr } = await supabase
     .from('programs')
-    .update({ plan_pdf_url: publicUrl })
+    .update({ plan_pdf_url: path })
     .eq('id', programId)
 
   if (dbErr) {
@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `저장 실패: ${dbErr.message}` }, { status: 500 })
   }
 
-  return NextResponse.json({ plan_pdf_url: publicUrl })
+  return NextResponse.json({ plan_pdf_url: path })
 }
 
 /** DELETE /api/admin/programs/plan?programId=... */
@@ -147,7 +147,7 @@ export async function DELETE(req: NextRequest) {
   }
 
   if (program.plan_pdf_url) {
-    const path = extractStoragePath(program.plan_pdf_url, BUCKET)
+    const path = storageRefPath(program.plan_pdf_url, BUCKET)
     if (path) {
       const { error: rmErr } = await supabase.storage.from(BUCKET).remove([path])
       if (rmErr) console.warn('[programs/plan] Storage 제거 실패:', rmErr.message)

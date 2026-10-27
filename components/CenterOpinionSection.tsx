@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import { storageViewUrl } from '@/lib/storageRef'
 import { RefreshCw, Save, MessageSquare, ImagePlus, X } from 'lucide-react'
 
 interface Props {
@@ -115,7 +116,7 @@ export default function CenterOpinionSection({ centerId, canEdit }: Props) {
         const res = await fetch('/api/admin/report-photos', { method: 'POST', body: form })
         const payload = await res.json().catch(() => null)
         if (!res.ok) throw new Error(payload?.error ?? '사진 업로드에 실패했습니다.')
-        uploaded.push(payload.url as string)
+        uploaded.push(payload.path as string) // 버킷 안 경로(비공개 버킷 — 보기는 storageViewUrl)
       }
       if (uploaded.length > 0) {
         const next = [...photoUrls, ...uploaded]
@@ -134,7 +135,7 @@ export default function CenterOpinionSection({ centerId, canEdit }: Props) {
     try {
       // Storage 파일 제거는 서버가 처리한다 (본인 기관 폴더인지도 서버가 검사).
       const res = await fetch(
-        `/api/admin/report-photos?centerId=${centerId}&url=${encodeURIComponent(url)}`,
+        `/api/admin/report-photos?centerId=${centerId}&ref=${encodeURIComponent(url)}`,
         { method: 'DELETE' },
       )
       if (!res.ok) {
@@ -224,7 +225,7 @@ export default function CenterOpinionSection({ centerId, canEdit }: Props) {
                     <div key={url} className="relative group aspect-square">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={url}
+                        src={storageViewUrl('report-photos', url)}
                         alt="현장 사진"
                         className="w-full h-full object-cover rounded-xl border border-gray-200"
                       />

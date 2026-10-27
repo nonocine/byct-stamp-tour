@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import { storageViewUrl } from '@/lib/storageRef'
 import {
   Upload, RefreshCw, FileText, ExternalLink, Trash2, Download,
 } from 'lucide-react'
@@ -307,7 +308,7 @@ export default function ReportTab({ admin }: Props) {
                         </p>
                       </div>
                       <a
-                        href={plan.pdf_url}
+                        href={storageViewUrl('program-plans', plan.pdf_url)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 text-blue-700 text-[11px] font-semibold rounded-lg hover:bg-blue-100 transition-colors flex-shrink-0"

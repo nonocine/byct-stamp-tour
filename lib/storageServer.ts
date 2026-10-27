@@ -66,25 +66,7 @@ export async function readUpload(
   return { buffer, contentType: type || 'application/octet-stream', filename: file.name || '' }
 }
 
-/**
- * Storage public URL 에서 버킷 내부 경로를 추출한다.
- * 임의 경로 주입을 막기 위해 상위 경로(..)와 절대 경로는 거부한다.
- */
-export function extractStoragePath(publicUrl: string, bucket: string): string | null {
-  const marker = `/${bucket}/`
-  const idx = publicUrl.indexOf(marker)
-  if (idx < 0) return null
-
-  let path = publicUrl.slice(idx + marker.length)
-  try {
-    path = decodeURIComponent(path)
-  } catch {
-    return null
-  }
-
-  if (!path || path.startsWith('/') || path.includes('..')) return null
-  return path
-}
+// 저장된 값(경로·예전 공개 URL) → 버킷 안 경로 변환은 lib/storageRef.ts 의 storageRefPath.
 
 /** 파일명에 쓸 안전한 확장자. */
 export function safeExtension(filename: string, fallback: string): string {
