@@ -11,8 +11,9 @@ export interface ProgramSummary {
   title: string
   date: string | null
   time: string | null
-  capacity: number
   target: string
+  /** 실제 스탬프를 받은 참가자 수 (중복 제거) */
+  participants: number
   hasPlanPdf: boolean
   planPdfUrl?: string | null
 }
@@ -36,19 +37,11 @@ export interface CenterReportData {
     description: string
   }
   programs: ProgramSummary[]
-  applications: {
-    total: number
-    pending: number
-    approved: number
-    rejected: number
-    waiting: number
-  }
+  /** 회차를 특정할 수 없어 프로그램별 참여 인원 집계에서 빠진 스탬프 수 */
+  unmatchedStamps: number
   stamps: {
     total: number
     uniqueParticipants: number
-  }
-  participation: {
-    rate: number // 0–100, 승인 신청 대비 스탬프 발급률
   }
   ageGroups: AgeGroups
   satisfaction: {
@@ -64,7 +57,6 @@ export interface CenterReportData {
   leaderOpinion: string | null
   timeline: {
     date: string
-    applications: number
     stamps: number
   }[]
 }
@@ -86,15 +78,9 @@ export interface GlobalReportData {
   totals: {
     organizations: number
     programs: number
-    applications: number
-    pending: number
-    approved: number
-    rejected: number
-    waiting: number
     stamps: number
     uniqueParticipants: number
   }
-  participation: { rate: number }
   satisfaction: {
     programAvg: number | null
     leaderAvg: number | null
@@ -164,24 +150,17 @@ function countAgeGroups(birthdates: (string | null | undefined)[]): AgeGroups {
   return g
 }
 
-function buildTimeline(apps: any[], stamps: any[]) {
-  const byDate: Record<string, { apps: number; stamps: number }> = {}
-  for (const a of apps) {
-    const day = (a.applied_at ?? '').slice(0, 10)
-    if (!day) continue
-    if (!byDate[day]) byDate[day] = { apps: 0, stamps: 0 }
-    byDate[day].apps++
-  }
+function buildTimeline(stamps: any[]) {
+  const byDate: Record<string, number> = {}
   for (const s of stamps) {
     const day = (s.stamped_at ?? '').slice(0, 10)
     if (!day) continue
-    if (!byDate[day]) byDate[day] = { apps: 0, stamps: 0 }
-    byDate[day].stamps++
+    byDate[day] = (byDate[day] ?? 0) + 1
   }
   return Object.entries(byDate)
     .sort(([a], [b]) => a.localeCompare(b))
     .slice(-30)
-    .map(([date, v]) => ({ date, applications: v.apps, stamps: v.stamps }))
+    .map(([date, stamps]) => ({ date, stamps }))
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -193,19 +172,15 @@ export async function collectCenterReportData(
   const org = ORGANIZATIONS.find(o => o.id === centerId)
   if (!org) throw new Error(`기관을 찾을 수 없습니다 (centerId=${centerId})`)
 
-  const [progRes, appRes, stampRes, reviewRes] = await Promise.all([
+  const [progRes, stampRes, reviewRes] = await Promise.all([
     client
       .from('programs')
-      .select('id, title, date, time, capacity, target, plan_pdf_url')
+      .select('id, title, date, time, target, plan_pdf_url')
       .eq('organization_id', centerId)
       .order('date', { ascending: true }),
     client
-      .from('applications')
-      .select('id, status, applied_at')
-      .eq('center_id', centerId),
-    client
       .from('stamp_records')
-      .select('id, stamped_at, participant_id')
+      .select('id, stamped_at, participant_id, program_id, program_title')
       .eq('center_id', centerId),
     client
       .from('reviews')
@@ -227,38 +202,57 @@ export async function collectCenterReportData(
     leaderOpinion = null
   }
 
-  const programs: ProgramSummary[] = (progRes.data ?? []).map((p: any) => ({
+  const progRows = (progRes.data ?? []) as any[]
+  const stamps = (stampRes.data ?? []) as any[]
+  const reviews = (reviewRes.data ?? []) as any[]
+
+  // 프로그램별 참여 인원 — 매칭 우선순위는 통합 보고서와 동일:
+  // ① stamp_records.program_id = programs.id  ② 정규화된 이름 (회차·오전/오후 접미사 제거)
+  // 같은 이름의 회차가 여럿이라 하나로 특정할 수 없는 스탬프는 unmatchedStamps 로 따로 센다.
+  const participantsByProgram = new Map<string, Set<string>>(
+    progRows.map(p => [p.id as string, new Set<string>()]),
+  )
+  const idMatched = new Set(
+    stamps.map(s => s.program_id).filter((id: any) => typeof id === 'string' && participantsByProgram.has(id)),
+  )
+  let unmatchedStamps = 0
+  for (const s of stamps) {
+    let programId: string | undefined
+    if (typeof s.program_id === 'string' && idMatched.has(s.program_id)) {
+      programId = s.program_id
+    } else {
+      const key = typeof s.program_title === 'string' ? normalizeProgramTitle(s.program_title) : ''
+      const candidates = key
+        ? progRows.filter(p => normalizeProgramTitle(p.title ?? '') === key)
+        : progRows
+      // 이름 매칭은 program_id 로 회차가 분리되지 않은 프로그램을 우선
+      const unsplit = candidates.filter(p => !idMatched.has(p.id))
+      const pool = unsplit.length > 0 ? unsplit : candidates
+      if (pool.length === 1) programId = pool[0].id
+    }
+    if (!programId) {
+      unmatchedStamps++
+      continue
+    }
+    if (s.participant_id) participantsByProgram.get(programId)!.add(s.participant_id)
+  }
+
+  const programs: ProgramSummary[] = progRows.map((p: any) => ({
     id: p.id,
     title: p.title,
     date: p.date ?? null,
     time: p.time ?? null,
-    capacity: p.capacity ?? 0,
     target: p.target ?? '',
+    participants: participantsByProgram.get(p.id)?.size ?? 0,
     hasPlanPdf: !!p.plan_pdf_url,
     planPdfUrl: p.plan_pdf_url ?? null,
   }))
-
-  const apps = (appRes.data ?? []) as any[]
-  const stamps = (stampRes.data ?? []) as any[]
-  const reviews = (reviewRes.data ?? []) as any[]
-
-  const applications = {
-    total: apps.length,
-    pending: apps.filter(a => a.status === 'pending').length,
-    approved: apps.filter(a => a.status === 'approved').length,
-    rejected: apps.filter(a => a.status === 'rejected').length,
-    waiting: apps.filter(a => a.status === 'waiting').length,
-  }
 
   // 실제 스탬프를 받은 참가자 ID (중복 제거) — 참여 통계·연령 분포의 공통 기준
   const stampParticipantIds = Array.from(
     new Set(stamps.map(s => s.participant_id).filter(Boolean)),
   ) as string[]
   const uniqueParticipants = stampParticipantIds.length
-
-  const rate = applications.approved > 0
-    ? (stamps.length / applications.approved) * 100
-    : 0
 
   // 연령대 — 실제 스탬프를 받은 참가자만 대상으로 birthdate 조회
   let profiles: any[] = []
@@ -304,9 +298,8 @@ export async function collectCenterReportData(
       description: org.description,
     },
     programs,
-    applications,
+    unmatchedStamps,
     stamps: { total: stamps.length, uniqueParticipants },
-    participation: { rate: Math.round(rate * 10) / 10 },
     ageGroups,
     satisfaction: {
       avg,
@@ -318,7 +311,7 @@ export async function collectCenterReportData(
       wishes,
     },
     leaderOpinion,
-    timeline: buildTimeline(apps, stamps),
+    timeline: buildTimeline(stamps),
   }
 }
 
@@ -335,9 +328,8 @@ function normalizeProgramTitle(title: string): string {
 export async function collectGlobalReportData(
   client: SupabaseClient,
 ): Promise<GlobalReportData> {
-  const [progRes, appRes, stampRes, reviewRes, profRes, gpRes] = await Promise.all([
+  const [progRes, stampRes, reviewRes, profRes, gpRes] = await Promise.all([
     client.from('programs').select('id, organization_id, title, date'),
-    client.from('applications').select('id, status, center_id'),
     client.from('stamp_records').select('id, center_id, participant_id, program_title, program_id'),
     client.from('reviews').select('center_id, rating, program_rating, leader_rating, facility_rating'),
     client.from('profiles').select('id, birthdate'),
@@ -350,7 +342,6 @@ export async function collectGlobalReportData(
   ])
 
   const programs = (progRes.data ?? []) as any[]
-  const apps = (appRes.data ?? []) as any[]
   const stamps = (stampRes.data ?? []) as any[]
   const reviews = (reviewRes.data ?? []) as any[]
   const profiles = (profRes.data ?? []) as any[]
@@ -364,16 +355,9 @@ export async function collectGlobalReportData(
   const totals = {
     organizations: ORGANIZATIONS.length,
     programs: programs.length,
-    applications: apps.length,
-    pending: apps.filter(a => a.status === 'pending').length,
-    approved: apps.filter(a => a.status === 'approved').length,
-    rejected: apps.filter(a => a.status === 'rejected').length,
-    waiting: apps.filter(a => a.status === 'waiting').length,
     stamps: stamps.length,
     uniqueParticipants: stampParticipantIds.size,
   }
-
-  const rate = totals.approved > 0 ? (totals.stamps / totals.approved) * 100 : 0
 
   const stampsByCenter = new Map<number, number>()
   for (const s of stamps) {
@@ -529,7 +513,6 @@ export async function collectGlobalReportData(
   return {
     generatedAt: new Date().toISOString(),
     totals,
-    participation: { rate: Math.round(rate * 10) / 10 },
     satisfaction,
     centerRankings: { byStamps, byRating },
     programSummary,
