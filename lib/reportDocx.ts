@@ -2,6 +2,7 @@
 // 단순 마크다운 → docx 변환기. heading, table, bullet, blockquote, **bold**, `code` 지원.
 import {
   AlignmentType,
+  BorderStyle,
   Document,
   HeadingLevel,
   ImageRun,
@@ -188,76 +189,100 @@ function buildBlocks(md: string): (Paragraph | Table)[] {
   return out
 }
 
-type DocxImageType = 'jpg' | 'png' | 'gif' | 'bmp'
+export const PHOTO_SECTION_TITLE = '8. 현장 사진'
 
-function imageTypeFromMime(mime: string): DocxImageType {
-  if (mime.includes('png')) return 'png'
-  if (mime.includes('gif')) return 'gif'
-  if (mime.includes('bmp')) return 'bmp'
-  return 'jpg'
-}
+// 사진 격자 — 한 줄 2장, 모두 같은 4:3 크기 (A4 본문폭 170mm 기준)
+const PHOTO_W = 300 // px
+const PHOTO_H = 225 // px
 
-// 브라우저에서 이미지 실제 크기 측정 (비율 유지용)
-function getImageDimensions(buf: ArrayBuffer, mime: string): Promise<{ width: number; height: number }> {
+const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
+
+// 브라우저 canvas 로 가운데 기준 4:3 크롭 → JPEG. 사진마다 비율이 달라도 격자 칸 크기가 같아진다.
+function cropToFrame(buf: ArrayBuffer, mime: string): Promise<ArrayBuffer | null> {
   return new Promise(resolve => {
     try {
-      const blob = new Blob([buf], { type: mime })
-      const url = URL.createObjectURL(blob)
+      const url = URL.createObjectURL(new Blob([buf], { type: mime }))
       const img = new Image()
       img.onload = () => {
-        resolve({ width: img.naturalWidth || 450, height: img.naturalHeight || 300 })
         URL.revokeObjectURL(url)
+        const outW = PHOTO_W * 3
+        const outH = PHOTO_H * 3
+        const srcRatio = img.naturalWidth / img.naturalHeight
+        const dstRatio = outW / outH
+        let sw = img.naturalWidth
+        let sh = img.naturalHeight
+        if (srcRatio > dstRatio) sw = sh * dstRatio
+        else sh = sw / dstRatio
+        const canvas = document.createElement('canvas')
+        canvas.width = outW
+        canvas.height = outH
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { resolve(null); return }
+        ctx.drawImage(img, (img.naturalWidth - sw) / 2, (img.naturalHeight - sh) / 2, sw, sh, 0, 0, outW, outH)
+        canvas.toBlob(
+          blob => { blob ? blob.arrayBuffer().then(resolve, () => resolve(null)) : resolve(null) },
+          'image/jpeg',
+          0.85,
+        )
       }
       img.onerror = () => {
-        resolve({ width: 450, height: 300 })
         URL.revokeObjectURL(url)
+        resolve(null)
       }
       img.src = url
     } catch {
-      resolve({ width: 450, height: 300 })
+      resolve(null)
     }
   })
 }
 
-// photo_urls → "현장 사진" 섹션 블록 생성
-async function buildPhotoBlocks(photoUrls: string[]): Promise<(Paragraph | Table)[]> {
-  const out: (Paragraph | Table)[] = []
-  const MAX_W = 450 // px
+function photoCell(data: ArrayBuffer | null): TableCell {
+  return new TableCell({
+    borders: { top: NO_BORDER, bottom: NO_BORDER, left: NO_BORDER, right: NO_BORDER },
+    width: { size: 50, type: WidthType.PERCENTAGE },
+    children: [
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 160 },
+        children: data
+          ? [new ImageRun({ data, type: 'jpg', transformation: { width: PHOTO_W, height: PHOTO_H } })]
+          : [],
+      }),
+    ],
+  })
+}
 
-  const images: Paragraph[] = []
+// photo_urls → "현장 사진" 섹션 블록 생성 (보고서 맨 마지막에 붙는다)
+async function buildPhotoBlocks(photoUrls: string[]): Promise<(Paragraph | Table)[]> {
+  const images: ArrayBuffer[] = []
   for (const url of photoUrls) {
     try {
       const res = await fetch(url)
       if (!res.ok) continue
       const buf = await res.arrayBuffer()
-      const mime = res.headers.get('content-type') || 'image/jpeg'
-      const type = imageTypeFromMime(mime)
-      const { width, height } = await getImageDimensions(buf, mime)
-      const scale = width > MAX_W ? MAX_W / width : 1
-      images.push(
-        new Paragraph({
-          children: [
-            new ImageRun({
-              data: buf,
-              type,
-              transformation: {
-                width: Math.round(width * scale),
-                height: Math.round(height * scale),
-              },
-            }),
-          ],
-          spacing: { after: 160 },
-        }),
-      )
+      const cropped = await cropToFrame(buf, res.headers.get('content-type') || 'image/jpeg')
+      if (cropped) images.push(cropped)
     } catch {
       // 개별 이미지 실패는 건너뜀
     }
   }
+  if (images.length === 0) return []
 
-  if (images.length === 0) return out
-  out.push(headingPara('현장 사진', 2))
-  out.push(...images)
-  return out
+  const rows: TableRow[] = []
+  for (let i = 0; i < images.length; i += 2) {
+    rows.push(new TableRow({ children: [photoCell(images[i]), photoCell(images[i + 1] ?? null)] }))
+  }
+  return [
+    headingPara(PHOTO_SECTION_TITLE, 2),
+    new Table({
+      rows,
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: {
+        top: NO_BORDER, bottom: NO_BORDER, left: NO_BORDER, right: NO_BORDER,
+        insideHorizontal: NO_BORDER, insideVertical: NO_BORDER,
+      },
+    }),
+  ]
 }
 
 export async function downloadReportAsDocx(

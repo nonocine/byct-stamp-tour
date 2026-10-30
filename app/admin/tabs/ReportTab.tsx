@@ -216,7 +216,7 @@ export default function ReportTab({ admin }: Props) {
 
       {admin.role === 'super' && (
         <>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3 no-print">
             <label className="block text-xs font-semibold text-gray-600 mb-2 px-1">보고서 종류</label>
             <div className="flex gap-1.5">
               <button
@@ -243,7 +243,7 @@ export default function ReportTab({ admin }: Props) {
           </div>
 
           {reportScope === 'center' && (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3 no-print">
               <label className="block text-xs font-semibold text-gray-600 mb-1.5 px-1">기관 선택</label>
               <select
                 value={reportCenterId ?? ''}
@@ -258,7 +258,7 @@ export default function ReportTab({ admin }: Props) {
             </div>
           )}
 
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden no-print">
             <div className="px-5 py-4 border-b border-gray-100">
               <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
                 📎 전체 계획서 PDF (슈퍼관리자 전용)
@@ -332,7 +332,7 @@ export default function ReportTab({ admin }: Props) {
       )}
 
       {admin.role === 'center' && (
-        <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3">
+        <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 no-print">
           <p className="text-xs text-blue-700">
             <span className="font-semibold">{admin.center_name ?? '본인 기관'}</span>의 보고서를 자동 생성합니다.
           </p>
@@ -355,7 +355,7 @@ export default function ReportTab({ admin }: Props) {
         externalMarkdownKey={loadedReport?.key ?? null}
       />
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden no-print">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
             📚 저장된 보고서

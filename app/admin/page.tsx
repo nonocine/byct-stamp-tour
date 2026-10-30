@@ -73,7 +73,7 @@ export default function AdminPage() {
 
   return (
     <div className="py-5">
-      <div className="px-4 mb-4 flex items-center justify-between">
+      <div className="px-4 mb-4 flex items-center justify-between no-print">
         <div>
           <div className="flex items-center gap-2">
             <Shield size={16} className="text-gray-700" />
@@ -92,7 +92,7 @@ export default function AdminPage() {
         </button>
       </div>
 
-      <div className="px-4 mb-4 grid grid-cols-4 gap-2">
+      <div className="px-4 mb-4 grid grid-cols-4 gap-2 no-print">
         {tabs.map(t => (
           <button
             key={t.key}

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { storageViewUrl } from '@/lib/storageRef'
 import { RefreshCw, Download, FileText, Save, Eye, Edit2 } from 'lucide-react'
 import { generateCenterReport, generateGlobalReport } from '@/lib/reportGenerator'
-import { downloadReportAsDocx } from '@/lib/reportDocx'
+import { downloadReportAsDocx, PHOTO_SECTION_TITLE } from '@/lib/reportDocx'
 import { ORGANIZATIONS } from '@/lib/data'
 import SatisfactionChart, { type SatisfactionData } from '@/components/SatisfactionChart'
 import CenterOpinionSection from '@/components/CenterOpinionSection'
@@ -115,6 +115,9 @@ export default function ReportManager({
   const [savedAt, setSavedAt] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [satisfaction, setSatisfaction] = useState<SatisfactionData | null>(null)
+  // 현장 사진(report-photos 버킷 경로) — CenterOpinionSection 이 불러온 목록과 동기화
+  const [photoRefs, setPhotoRefs] = useState<string[]>([])
+  const showPhotos = scope === 'center' && !!centerId && photoRefs.length > 0
 
   // 외부 주입 마크다운 — key 변경 시 내부 상태 교체
   useEffect(() => {
@@ -186,25 +189,12 @@ export default function ReportManager({
       const shortName = ORGANIZATIONS.find(o => o.id === centerId)?.shortName ?? 'center'
       const base = scope === 'global' ? `byct_통합보고서_${tag}` : `byct_${shortName}_${tag}`
 
-      // 기관별 보고서에는 현장 사진 첨부
-      let photoUrls: string[] = []
-      if (scope === 'center' && centerId) {
-        try {
-          const res = await fetch(`/api/admin/center-report?centerId=${centerId}`, {
-            cache: 'no-store',
-          })
-          const payload = res.ok ? await res.json().catch(() => null) : null
-          photoUrls = (payload?.photo_urls as string[] | null) ?? []
-        } catch {
-          photoUrls = []
-        }
-      }
-
+      // 기관별 보고서에는 미리보기와 같은 현장 사진을 맨 마지막 섹션으로 첨부.
       // 비공개 버킷 — 서버가 로그인·기관 권한 확인 후 직접 내려받은 사진을 넣는다(raw).
       await downloadReportAsDocx(
         markdown,
         `${base}.docx`,
-        photoUrls.map(u => storageViewUrl('report-photos', u, { raw: true })),
+        showPhotos ? photoRefs.map(u => storageViewUrl('report-photos', u, { raw: true })) : [],
       )
     } catch (e: any) {
       alert(`Word 파일 생성 실패: ${e?.message ?? e}`)
@@ -254,6 +244,11 @@ export default function ReportManager({
 
   return (
     <div className="space-y-4">
+      {/* 종합의견·사진 편집 — 보고서 본문이 아니므로 미리보기 위에 두고 인쇄에서 제외 */}
+      {scope === 'center' && centerId && (
+        <CenterOpinionSection centerId={centerId} canEdit={canEditOpinion} onPhotosChange={setPhotoRefs} />
+      )}
+
       <div className="flex flex-wrap gap-2 no-print">
         <button
           onClick={handleGenerate}
@@ -335,10 +330,23 @@ export default function ReportManager({
       )}
 
       {status === 'ready' && view === 'preview' && (
-        <div
-          className="report-preview bg-white rounded-2xl border border-gray-200 px-6 py-6 max-w-none print:border-0 print:p-0"
-          dangerouslySetInnerHTML={{ __html: previewHtml }}
-        />
+        <div className="report-preview bg-white rounded-2xl border border-gray-200 px-6 py-6 max-w-none print:border-0 print:p-0">
+          <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
+          {/* 현장 사진 — 담당지도자 종합의견 다음, 보고서의 맨 마지막 섹션 */}
+          {showPhotos && (
+            <section className="report-photos">
+              <h2>{PHOTO_SECTION_TITLE}</h2>
+              <div className="report-photo-grid">
+                {photoRefs.map(ref => (
+                  <div key={ref} className="report-photo-cell">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={storageViewUrl('report-photos', ref)} alt="현장 사진" />
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
       )}
 
       {status === 'ready' && view === 'edit' && (
@@ -350,16 +358,22 @@ export default function ReportManager({
         />
       )}
 
-      {scope === 'center' && centerId && (
-        <CenterOpinionSection centerId={centerId} canEdit={canEditOpinion} />
-      )}
-
       <style jsx global>{`
         @media print {
           .no-print { display: none !important; }
           body { background: white !important; }
+          main { padding: 0 !important; max-width: none !important; }
           .report-preview { border: none !important; padding: 0 !important; }
+          .report-photo-cell { break-inside: avoid; }
         }
+        .report-photos { margin-top: 8px; }
+        .report-photo-grid {
+          display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0;
+        }
+        .report-photo-cell {
+          aspect-ratio: 4 / 3; overflow: hidden; border: 1px solid #e5e7eb; border-radius: 6px; background: #f9fafb;
+        }
+        .report-photo-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .report-preview h1 { font-size: 24px; font-weight: 800; margin: 16px 0 12px; color: #111827; }
         .report-preview h2 {
           font-size: 19px; font-weight: 700; margin: 20px 0 10px;

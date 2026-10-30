@@ -27,7 +27,7 @@ export default function Navigation() {
   return (
     <>
       {/* 상단 헤더 */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-gray-100 shadow-sm">
+      <header className="no-print fixed top-0 left-0 right-0 z-50 bg-white border-b border-gray-100 shadow-sm">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
@@ -68,7 +68,7 @@ export default function Navigation() {
       </header>
 
       {/* 하단 탭 네비게이션 */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-100 safe-area-bottom">
+      <nav className="no-print fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-100 safe-area-bottom">
         <div className="max-w-2xl mx-auto px-2">
           <div className="flex items-center justify-around h-16">
             {navItems.map(({ href, label, icon: Icon }) => {

@@ -186,7 +186,7 @@ export const ORGANIZATIONS: Organization[] = [
     name: "아르피나",
     shortName: "아르피",
     description: "양궁·펜싱 등 정통 레저스포츠를 체험할 수 있는 청소년 시설",
-    location: "부산시 기장군",
+    location: "부산시 해운대구",
     category: "레저스포츠",
     color: "#2563EB",
     bgColor: "bg-blue-600",

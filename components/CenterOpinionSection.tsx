@@ -7,12 +7,14 @@ interface Props {
   centerId: number
   /** 담당지도자(기관 관리자)는 편집 가능, 슈퍼관리자는 읽기 전용 */
   canEdit: boolean
+  /** 사진 목록이 바뀔 때(최초 로드·업로드·삭제) 알림 — 보고서 미리보기/Word 의 "현장 사진" 섹션용 */
+  onPhotosChange?: (refs: string[]) => void
 }
 
 const MAX_PHOTOS = 5
 const BUCKET = 'report-photos'
 
-export default function CenterOpinionSection({ centerId, canEdit }: Props) {
+export default function CenterOpinionSection({ centerId, canEdit, onPhotosChange }: Props) {
   const [opinion, setOpinion] = useState('')
   const [photoUrls, setPhotoUrls] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
@@ -43,6 +45,10 @@ export default function CenterOpinionSection({ centerId, canEdit }: Props) {
     load()
     return () => { active = false }
   }, [centerId])
+
+  useEffect(() => {
+    onPhotosChange?.(photoUrls)
+  }, [photoUrls]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /** center_reports 부분 갱신 — opinion / photo_urls 중 보낸 항목만 바뀐다. */
   async function patchCenterReport(patch: Record<string, unknown>) {
@@ -151,7 +157,7 @@ export default function CenterOpinionSection({ centerId, canEdit }: Props) {
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden no-print">
       <div className="px-5 py-4 border-b border-gray-100">
         <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
           <MessageSquare size={15} /> 담당지도자 종합의견
