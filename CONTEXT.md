@@ -22,11 +22,14 @@
 | 프레임워크 | Next.js 16 (App Router) + React 18 |
 | 언어 | TypeScript 5 |
 | 스타일 | Tailwind CSS 3.4 |
-| 백엔드 / DB | Supabase (PostgreSQL + RLS) |
+| 백엔드 / DB | Supabase (PostgreSQL + RLS) + Supabase Storage |
 | 인증 | 자체 구현 (전화번호 + 생년월일, localStorage 세션) |
 | 지도 | Kakao Maps JavaScript SDK + services 라이브러리 (geocoding) |
 | 아이콘 | lucide-react |
 | 인증서 PDF | html2canvas + jspdf |
+| 보고서 Word 생성 | docx (마크다운 → .docx 변환) |
+| PDF 텍스트 추출 | pdfjs-dist (운영계획서 본문 추출용 유틸 — 자동 호출 X, on-demand) |
+| 웹 푸시 | web-push (서버) + 자체 Service Worker (`public/sw.js`) + VAPID |
 | 데이터 익스포트 | xlsx |
 | 배포 | Vercel |
 | 패키지 매니저 | npm |
@@ -48,18 +51,29 @@
 | `profiles` | 참가자 계정 (name, phone, birthdate) |
 | `stamp_records` | 기관 관리자가 승인한 스탬프 기록 (단일 진실 소스) |
 | `reviews` | 참가자가 기관에 남긴 별점/한줄평 |
-| `applications` | 외부 신청 후 완료 처리한 프로그램 신청 기록 |
-| `programs` | 기관별 운영 프로그램 (관리자가 CRUD) |
+| `applications` | 외부 신청 후 완료 처리한 프로그램 신청 기록 — status: `pending` / `approved` / `rejected` / `waiting` |
+| `programs` | 기관별 운영 프로그램 (관리자가 CRUD) — `plan_pdf_url` 컬럼으로 운영계획서 PDF 링크 보관 |
 | `admins` | 기관 관리자 계정 (super / center 역할) |
+| `organization_logos` | 기관 로고 동적 교체용 (center_id PK + logo_url) — lib/data.ts 정적 logo의 override |
+| `push_subscriptions` | 웹 푸시 구독 정보 (participant_id, endpoint, p256dh, auth) |
+| `global_plans` | 슈퍼관리자 업로드 전체 사업 계획서 (제목 + pdf_url + 업로더, 누적 보관) |
+| `reports` | 생성된 보고서 저장 — scope='center'(center_id 필수) / 'global', content_md 마크다운 본문 |
 
 ### 주요 뷰
 
 - `stamp_stats`, `org_stamp_summary`, `participant_progress`, `center_review_summary`
 
+### Storage 버킷 (모두 public)
+
+| 버킷 | 용도 |
+|---|---|
+| `org-logos` | 기관 로고 이미지. 경로: `{centerId}-{timestamp}.{ext}` |
+| `program-plans` | 프로그램 계획서 PDF (`programs/{programId}-{ts}.pdf`) + 전체 계획서 PDF (`global/{ts}.pdf`) |
+
 ### RLS 정책
 
-- 모든 테이블 RLS 활성화
-- 현재는 누구나 insert/select 가능 (운영 단계에서 조이는 정책 보강 필요)
+- 모든 테이블/버킷 RLS 활성화
+- 현재는 누구나 CRUD 가능 (운영 단계에서 조이는 정책 보강 필요 — 관리자만 write 가능하도록 등)
 
 ---
 
@@ -95,21 +109,31 @@
 - ✅ 회원가입 / 로그인 (이름 + 전화번호 + 생년월일, localStorage 세션)
 - ✅ 메인 페이지 — 히어로 배너, 내 스탬프 현황, 진행률, 기관 미리보기
 - ✅ 프로그램 페이지 — 카카오맵 기반 17개 기관 위치 표시, 기관별 프로그램 리스트
-- ✅ 스탬프 페이지 — 수집한 스탬프 그리드 표시
+- ✅ 스탬프 페이지 — 수집한 스탬프 그리드 표시 (DB 로고 우선, 정적 fallback)
 - ✅ 별점/한줄평 작성 (기관별 1회, upsert)
 - ✅ 수료증 PDF 다운로드 (3개 이상 시 발급, html2canvas + jspdf)
 - ✅ 외부 프로그램 신청 후 "신청 완료" 기록 (applications 테이블)
+- ✅ **신청 상태별 표시** — pending(⏳ 승인 대기중) / waiting(📋 대기열) / approved(✅ 승인 완료 + 스탬프 발급 여부) / rejected(❌ 거절됨 + 재신청 버튼) 5분기 렌더링
+- ✅ **웹 푸시 알림 구독** (`PushNotificationButton` 컴포넌트) — 권한 요청 → `pushManager.subscribe()` → `push_subscriptions` 테이블 upsert
 - ✅ 앱 최초 진입 시 스플래시 화면 (400px 로고)
 
-### 기관 관리자
+### 기관 관리자 / 슈퍼관리자
 - ✅ 관리자 로그인 (전화번호 기반)
 - ✅ 슈퍼관리자 / 센터관리자 역할 분리
 - ✅ 대시보드 — 참가자/스탬프/완주자 통계, 기관별 분포
 - ✅ 참가자 검색 → 스탬프 승인 (1기관 1스탬프)
-- ✅ 참가자 목록/검색 (페이지네이션)
+- ✅ 참가자 목록/검색 (페이지네이션 — 10명 단위, 번호 버튼 UI)
 - ✅ 별점/한줄평 모니터링
-- ✅ 외부 신청 승인 처리 (applications)
+- ✅ **신청 승인/거절/대기 처리 (3개 버튼)** — `applications.status` 업데이트, 승인 시 `stamp_records` 자동 미발급(분리됨)
+- ✅ **승인/거절/대기/스탬프 발급/스탬프 취소 시 참가자에게 자동 웹 푸시 발송** (`/api/send-push` API Route, web-push 패키지)
+- ✅ **스탬프 취소 기능** — `stamp_records` + `applications` 동시 삭제 → 참가자가 처음 상태로 복귀 (3개 경로 모두: 스탬프 탭 인라인, 전화번호 검색, 참가자 관리 탭 트래시)
+- ✅ **기관 로고 동적 업로드** — Storage `org-logos` 버킷 + `organization_logos` 테이블, `OrgLogosProvider` Context로 앱 전역에 즉시 반영
 - ✅ 프로그램 CRUD (관리자가 자기 기관 프로그램 수정)
+- ✅ **프로그램별 운영계획서 PDF 업로드** — Storage `program-plans/programs/` 경로 + `programs.plan_pdf_url`, 10MB 제한, 업로드/변경/보기/삭제
+- ✅ **보고서 자동 생성** — 데이터 집계(`lib/reportData.ts`) → 마크다운 생성 + 룰 기반 자동 코멘트(`lib/reportGenerator.ts`) → 미리보기/편집 토글 / Word(.docx) 다운로드 / PDF 인쇄 / `reports` 테이블 저장
+- ✅ **저장된 보고서 목록** — 권한 필터(슈퍼=전체, 센터=본인 기관) + 불러오기/삭제
+- ✅ 슈퍼관리자: 전체 계획서 PDF 업로드/관리 (`global_plans` 테이블, 20MB 제한)
+- ✅ 슈퍼관리자: 전체 통합 보고서 생성 (17개 기관 종합 + 순위 + 연령 분포 + 최신 전체 계획서 링크)
 - ✅ 관리자 계정 관리 (슈퍼만)
 - ✅ 외부 링크 관리
 - ✅ 엑셀 다운로드 (xlsx)
@@ -125,10 +149,12 @@
 | 우선순위 | 기능 | 메모 |
 |---|---|---|
 | 🔴 높음 | **전화번호 SMS 인증 로그인** | 현재는 전화번호+생년월일 단순 매칭. 본인확인이 불가. Supabase Phone Auth 또는 Twilio/NHN Cloud SENS 검토 |
-| 🔴 높음 | **Supabase 영구 저장 (세션)** | 현재 로그인 세션이 localStorage에만 존재 → 기기 바꾸면 데이터 안 보임. Supabase Auth 도입 시 자동 해결 |
-| 🟡 중간 | **관리자 승인 스탬프 시스템 고도화** | 현재도 관리자가 승인하지만, QR 코드 / 일회용 토큰 기반 등으로 부정 발급 방지 강화 필요 |
-| 🟡 중간 | **참여자 통계 대시보드** | 학교/연령대/지역별 통계, 시계열 추이 차트, 인기 기관 랭킹 등 |
+| 🔴 높음 | **Supabase Auth 기반 세션** | 현재 로그인 세션이 localStorage에만 존재 → 기기 바꾸면 다시 로그인 필요. Supabase Auth 도입 시 자동 해결 |
+| 🟡 중간 | **부정 스탬프 방지 강화** | 현재 관리자 버튼 클릭으로 발급. QR 코드 / 일회용 토큰 기반으로 대체 시 보안 강화. |
+| 🟡 중간 | **`/api/send-push` 엔드포인트 인증** | 현재 누구나 POST 가능 — 관리자 토큰 검증 추가 후보. |
+| 🟡 중간 | **운영 단계 RLS 정책 강화** | 모든 테이블이 anon CRUD 허용 상태. 운영 전에 관리자 권한 분리 필요. |
 | 🟢 낮음 | **시설별 상세 페이지** | 현재 프로그램 페이지 안에 인라인 카드만 존재. 기관 단독 상세 페이지(소개, 사진, 약도, 전화, 운영시간) 필요 |
+| 🟢 낮음 | **운영계획서 PDF 텍스트 자동 포함** | `lib/pdfTextExtractor.ts` 유틸은 준비되어 있으나 보고서 생성 시 자동 호출되지 않음. 향후 보고서 본문에 계획서 텍스트 삽입 옵션 추가 가능. |
 
 ---
 
@@ -170,6 +196,10 @@
 6. **`reactStrictMode: false`** (`next.config.js`) — 카카오맵 SDK가 더블 마운트에서 충돌하는 문제 회피용. 의도된 설정이므로 켜지 마세요.
 7. **프로그램 컬럼명은 `title`** (`name` 아님) — DB 스키마와 통일됨 (커밋 2e9f307 참고).
 8. **운영기간 표기 "6월~11월"** — 협회 공식 일정. 임의로 바꾸지 마세요.
+9. **VAPID 키 페어** (`NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`) — **재생성 금지**. 새로 만들면 기존 모든 웹 푸시 구독이 무효화되어 사용자가 다시 알림 허용을 해야 함. `.env.local` + Vercel 외에 안전한 곳(1Password 등)에 백업 필수.
+10. **Storage 버킷 이름 `org-logos` / `program-plans`** — 코드 곳곳에 하드코딩 (admin page, ReportData, 업로드/삭제 핸들러). 변경 시 광범위 수정 필요.
+11. **`reports.scope` 체크 제약** — `'center'` 또는 `'global'` 두 값만 허용 + `scope='center' ↔ center_id` 존재 강제. 새 scope 추가 시 SQL 제약부터 풀어야 함.
+12. **`applications.status` 체크 제약** — 현재 `pending / approved / rejected / waiting` 4값. 신규 상태 추가 시 SQL의 `applications_status_check` drop & re-create 필요.
 
 ---
 
@@ -204,10 +234,26 @@ npm run dev
 ### 환경 변수 (`.env.local`)
 
 ```
+# Supabase
 NEXT_PUBLIC_SUPABASE_URL=https://ppgthptyjjrcmkeearfx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<협회 담당자에게 받은 값>
 NEXT_PUBLIC_ADMIN_PASSWORD=byct2026
+
+# Web Push (VAPID)
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=<VAPID 공개키 — pushManager.subscribe() 용>
+VAPID_PRIVATE_KEY=<VAPID 비공개키 — 서버 전용, 클라이언트 노출 금지>
+VAPID_SUBJECT=mailto:<운영자 이메일>
 ```
+
+| 변수 | 노출 범위 | 설명 |
+|---|---|---|
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | 브라우저 OK | 클라이언트에서 푸시 구독 시 사용. Next.js가 빌드 시 번들에 박음 |
+| `VAPID_PRIVATE_KEY` | **서버 전용** | API Route(`/api/send-push`)에서 web-push 서명용. `NEXT_PUBLIC_` 절대 붙이지 말 것 |
+| `VAPID_SUBJECT` | 공개 | RFC 8292 식별자, mailto: 또는 https: |
+
+> VAPID 키는 `npx web-push generate-vapid-keys` 로 한 번 생성 후 영구 보관. 분실 시 모든 구독 재발급 필요 — **결정사항 9번 참조**.
+
+> Vercel 운영 배포 시 위 3개 변수도 대시보드 → Environment Variables 에 등록 필수.
 
 ### 주요 npm 스크립트
 
@@ -243,31 +289,45 @@ node scripts/seed-programs.mjs
 
 ```
 byct-stamp-tour/
-├─ app/                  # Next.js App Router 페이지
-│  ├─ page.tsx           # 메인
-│  ├─ login/             # 참가자 로그인/회원가입
-│  ├─ programs/          # 기관 지도 + 프로그램 리스트
-│  ├─ stamps/            # 내 스탬프 + 수료증
-│  └─ admin/             # 관리자 대시보드
-├─ components/           # 공통 컴포넌트
-│  ├─ AuthProvider.tsx   # 참가자 인증 컨텍스트
-│  ├─ AdminProvider.tsx  # 관리자 인증 컨텍스트
-│  ├─ KakaoMap.tsx       # 카카오맵 래퍼
-│  ├─ Certificate.tsx    # 수료증 템플릿
-│  ├─ Splash.tsx         # 진입 스플래시
-│  └─ ...
+├─ app/                            # Next.js App Router 페이지
+│  ├─ page.tsx                     # 메인 (히어로 + 내 현황 + 푸시 구독 버튼)
+│  ├─ login/                       # 참가자 로그인/회원가입
+│  ├─ programs/                    # 기관 지도 + 프로그램 리스트 + 신청 상태
+│  ├─ stamps/                      # 내 스탬프 + 수료증
+│  ├─ admin/                       # 관리자 대시보드 (9개 탭: 대시보드/스탬프/참가자/관리자/링크/리뷰/신청/프로그램/보고서)
+│  └─ api/
+│     └─ send-push/route.ts        # 웹 푸시 발송 API (Node.js runtime, web-push 패키지)
+├─ components/                     # 공통 컴포넌트
+│  ├─ AuthProvider.tsx             # 참가자 인증 컨텍스트
+│  ├─ AdminProvider.tsx            # 관리자 인증 컨텍스트
+│  ├─ KakaoMap.tsx                 # 카카오맵 래퍼
+│  ├─ Certificate.tsx              # 수료증 템플릿
+│  ├─ Splash.tsx                   # 진입 스플래시
+│  ├─ StampGrid.tsx                # 스탬프 그리드 (DB 로고 우선 표시)
+│  ├─ OrgIcon.tsx                  # 기관 아이콘 (DB 로고 우선 + 색상 fallback)
+│  ├─ OrgLogosProvider.tsx         # 기관 로고 Context (앱 전역 + refresh)
+│  ├─ PushNotificationButton.tsx   # 웹 푸시 권한 요청 + 구독 등록
+│  ├─ ReportManager.tsx            # 보고서 생성/미리보기/편집/Word·PDF 다운로드/DB 저장
+│  ├─ ReviewModal.tsx
+│  └─ ProgramEditModal.tsx
 ├─ lib/
-│  ├─ data.ts            # 17개 기관 정적 데이터
-│  ├─ programs.ts        # 프로그램 fetch 로직
-│  ├─ supabase.ts        # Supabase 클라이언트
+│  ├─ data.ts                      # 17개 기관 정적 데이터
+│  ├─ programs.ts                  # 프로그램 fetch 로직
+│  ├─ supabase.ts                  # Supabase 클라이언트
 │  ├─ types.ts
-│  └─ generateCertificate.ts
+│  ├─ generateCertificate.ts
+│  ├─ orgLogos.ts                  # organization_logos fetch 헬퍼
+│  ├─ reportData.ts                # 보고서 데이터 집계 (center/global)
+│  ├─ reportGenerator.ts           # 마크다운 생성 + 룰 기반 자동 코멘트
+│  ├─ reportDocx.ts                # 마크다운 → Word(.docx) 변환
+│  └─ pdfTextExtractor.ts          # pdfjs-dist 로 PDF URL 텍스트 추출 (on-demand)
 ├─ public/
-│  ├─ logos/             # 기관 로고
+│  ├─ sw.js                        # 서비스 워커 (push / notificationclick)
+│  ├─ logos/                       # 기관 로고 (정적 fallback)
 │  └─ association-logo.png
 ├─ scripts/
-│  └─ seed-programs.mjs  # 프로그램 SEED
+│  └─ seed-programs.mjs            # 프로그램 SEED
 ├─ supabase/
-│  └─ schema.sql         # DB 스키마
-└─ insert_programs.sql   # 프로그램 데이터
+│  └─ schema.sql                   # DB 스키마
+└─ insert_programs.sql             # 프로그램 데이터
 ```

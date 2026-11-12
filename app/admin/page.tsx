@@ -13,8 +13,9 @@ import ApplicationTab from './tabs/ApplicationTab'
 import ProgramTab from './tabs/ProgramTab'
 import ReportTab from './tabs/ReportTab'
 import LinkTab from './tabs/LinkTab'
+import EssayTab from './tabs/EssayTab'
 
-type Tab = 'dashboard' | 'stamp' | 'participants' | 'admins' | 'links' | 'reviews' | 'applications' | 'programs' | 'reports'
+type Tab = 'dashboard' | 'stamp' | 'participants' | 'admins' | 'links' | 'reviews' | 'applications' | 'programs' | 'reports' | 'essays'
 
 export default function AdminPage() {
   const router = useRouter()
@@ -65,6 +66,7 @@ export default function AdminPage() {
     { key: 'stamp', label: '스탬프 찍기' },
     { key: 'participants', label: '참가자 관리' },
     { key: 'reviews', label: '평가 모아보기' },
+    { key: 'essays', label: '소감문' },
     { key: 'links', label: '기관 링크' },
     { key: 'programs', label: '프로그램 관리' },
     { key: 'reports', label: '보고서' },
@@ -109,6 +111,7 @@ export default function AdminPage() {
       {tab === 'stamp' && <StampTab admin={admin} />}
       {tab === 'participants' && <ParticipantTab admin={admin} />}
       {tab === 'reviews' && <ReviewTab admin={admin} />}
+      {tab === 'essays' && <EssayTab admin={admin} />}
       {tab === 'links' && <LinkTab admin={admin} />}
       {tab === 'programs' && <ProgramTab admin={admin} />}
       {tab === 'reports' && <ReportTab admin={admin} />}

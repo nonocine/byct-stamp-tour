@@ -39,6 +39,15 @@ function validateBirthdate(value: string): boolean {
   return year >= 1900 && year <= 2020 && month >= 1 && month <= 12 && day >= 1 && day <= 31
 }
 
+/** 로그인 후 돌아갈 곳 — ?next=/essay 처럼 같은 사이트 경로만 허용 (문자 링크용) */
+function nextPath(): string {
+  try {
+    const next = new URLSearchParams(window.location.search).get('next') ?? ''
+    if (next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\')) return next
+  } catch {}
+  return '/'
+}
+
 export default function LoginPage() {
   const router = useRouter()
   const { profile, loading, login } = useAuth()
@@ -53,7 +62,7 @@ export default function LoginPage() {
   const minBirthdate = useMemo(() => minBirthdateForMaxAge(ADULT_AGE_LIMIT), [])
 
   useEffect(() => {
-    if (!loading && profile) router.replace('/')
+    if (!loading && profile) router.replace(nextPath())
   }, [profile, loading, router])
 
   function switchMode(m: Mode) {
@@ -105,7 +114,7 @@ export default function LoginPage() {
       }
 
       login(payload.profile as Profile)
-      router.replace('/')
+      router.replace(nextPath())
     } catch {
       setErrors({ form: '네트워크 오류로 로그인에 실패했습니다' })
     } finally {
@@ -140,7 +149,7 @@ export default function LoginPage() {
       }
 
       login(payload.profile as Profile)
-      router.replace('/')
+      router.replace(nextPath())
     } catch {
       setErrors({ form: '네트워크 오류로 가입에 실패했습니다' })
     } finally {

@@ -329,3 +329,180 @@ export async function downloadReportAsDocx(
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
+
+// ── 소감문 자료집 ────────────────────────────────────────────────────────────
+// 보고서와 같은 글꼴·제목 스타일·여백(downloadReportAsDocx)을 쓴다. 기관별로 묶고,
+// 소감문 1편 = 1쪽(이름·사진·본문). 사진은 자르지 않고 비율을 지켜 줄인다.
+
+export interface EssayDocItem {
+  participant_name: string
+  center_id: number
+  center_name: string
+  is_excellent: boolean
+  photo_url: string | null
+  sections: { title: string; body: string }[]
+}
+
+const ESSAY_PHOTO_MAX_W = 420 // px
+const ESSAY_PHOTO_MAX_H = 300 // px
+
+// 사진 → 비율 유지 JPEG + 표시 크기. 실패하면 null(사진 없이 계속).
+async function fitPhoto(url: string): Promise<{ data: ArrayBuffer; width: number; height: number } | null> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const blob = await res.blob()
+    const objUrl = URL.createObjectURL(blob)
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const i = new Image()
+        i.onload = () => resolve(i)
+        i.onerror = () => reject(new Error('image'))
+        i.src = objUrl
+      })
+      const scale = Math.min(ESSAY_PHOTO_MAX_W / img.naturalWidth, ESSAY_PHOTO_MAX_H / img.naturalHeight, 1)
+      const width = Math.max(1, Math.round(img.naturalWidth * scale))
+      const height = Math.max(1, Math.round(img.naturalHeight * scale))
+      const canvas = document.createElement('canvas')
+      canvas.width = width * 2
+      canvas.height = height * 2
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return null
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      const out = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/jpeg', 0.85))
+      if (!out) return null
+      return { data: await out.arrayBuffer(), width, height }
+    } finally {
+      URL.revokeObjectURL(objUrl)
+    }
+  } catch {
+    return null
+  }
+}
+
+// 사용자가 쓴 글은 마크다운으로 해석하지 않는다(** 같은 문자가 그대로 보이게).
+function plainParas(text: string): Paragraph[] {
+  return text
+    .split(/\r?\n/)
+    .map(line => new Paragraph({
+      children: [new TextRun({ text: line, font: FONT, size: 21 })],
+      spacing: { after: 80, line: 340 },
+    }))
+}
+
+export async function downloadEssayBookDocx(
+  items: EssayDocItem[],
+  filename: string,
+  opts: { title: string; centerOrder: number[]; onProgress?: (done: number, total: number) => void },
+): Promise<void> {
+  const groups = new Map<number, EssayDocItem[]>()
+  for (const it of items) {
+    const g = groups.get(it.center_id) ?? []
+    g.push(it)
+    groups.set(it.center_id, g)
+  }
+  const order = [
+    ...opts.centerOrder.filter(id => groups.has(id)),
+    ...[...groups.keys()].filter(id => !opts.centerOrder.includes(id)),
+  ]
+
+  const blocks: (Paragraph | Table)[] = [
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 2400, after: 400 },
+      children: [new TextRun({ text: opts.title, bold: true, font: FONT, size: 44 })],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 200 },
+      children: [new TextRun({ text: `소감문 ${items.length}편 · ${order.length}개 기관`, font: FONT, size: 24 })],
+    }),
+  ]
+  // 목차
+  blocks.push(headingPara('차례', 2))
+  for (const id of order) {
+    const g = groups.get(id)!
+    blocks.push(bulletPara(`${g[0].center_name} — ${g.length}편`))
+  }
+
+  let done = 0
+  for (const id of order) {
+    const g = groups.get(id)!
+    // 기관 표지
+    blocks.push(new Paragraph({
+      pageBreakBefore: true,
+      heading: HeadingLevel.HEADING_1,
+      spacing: { before: 1600, after: 200 },
+      alignment: AlignmentType.CENTER,
+      children: [new TextRun({ text: g[0].center_name, bold: true, font: FONT, size: 36 })],
+    }))
+    blocks.push(new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [new TextRun({ text: `소감문 ${g.length}편`, font: FONT, size: 22 })],
+    }))
+
+    for (const it of g) {
+      blocks.push(new Paragraph({
+        pageBreakBefore: true,
+        heading: HeadingLevel.HEADING_2,
+        spacing: { after: 160 },
+        children: [
+          new TextRun({ text: it.participant_name, bold: true, font: FONT, size: 30 }),
+          ...(it.is_excellent ? [new TextRun({ text: '  ★ 우수작', bold: true, font: FONT, size: 22, color: 'C47F00' })] : []),
+        ],
+      }))
+      blocks.push(new Paragraph({
+        spacing: { after: 200 },
+        children: [new TextRun({ text: it.center_name, font: FONT, size: 18, color: '888888' })],
+      }))
+      if (it.photo_url) {
+        const photo = await fitPhoto(it.photo_url)
+        if (photo) {
+          blocks.push(new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 240 },
+            children: [new ImageRun({ data: photo.data, type: 'jpg', transformation: { width: photo.width, height: photo.height } })],
+          }))
+        }
+      }
+      for (const s of it.sections) {
+        if (!s.body.trim()) continue
+        blocks.push(new Paragraph({
+          spacing: { before: 160, after: 60 },
+          children: [new TextRun({ text: s.title, bold: true, font: FONT, size: 20, color: '1A3A8C' })],
+        }))
+        blocks.push(...plainParas(s.body.trim()))
+      }
+      done += 1
+      opts.onProgress?.(done, items.length)
+    }
+  }
+
+  const doc = new Document({
+    creator: 'B.Y.C.T 스탬프투어',
+    styles: { default: { document: { run: { font: FONT, size: 20 } } } },
+    sections: [{
+      properties: {
+        page: {
+          margin: {
+            top: convertMillimetersToTwip(20),
+            bottom: convertMillimetersToTwip(20),
+            left: convertMillimetersToTwip(20),
+            right: convertMillimetersToTwip(20),
+          },
+        },
+      },
+      children: blocks,
+    }],
+  })
+
+  const blob = await Packer.toBlob(doc)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}

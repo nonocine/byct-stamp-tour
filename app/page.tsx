@@ -1,7 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { MapPin, Calendar, Award, ChevronRight, Stamp, Info } from 'lucide-react'
+import { MapPin, Calendar, Award, ChevronRight, Stamp, Info, PenLine } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ORGANIZATIONS } from '@/lib/data'
 import OrgIcon from '@/components/OrgIcon'
@@ -159,6 +159,28 @@ export default function HomePage() {
               <Stamp size={15} />
               내 스탬프 보기
             </Link>
+
+            {/* 소감문 — 스탬프 1개 이상부터 */}
+            {stampCount > 0 ? (
+              <Link
+                href="/essay"
+                className="mt-2 flex items-center justify-center gap-2 w-full py-3 bg-indigo-600 text-white font-bold text-sm rounded-xl hover:bg-indigo-700 transition-colors"
+              >
+                <PenLine size={15} />
+                소감문 쓰기
+              </Link>
+            ) : (
+              <div className="mt-2">
+                <button
+                  disabled
+                  className="flex items-center justify-center gap-2 w-full py-3 bg-gray-100 text-gray-400 font-bold text-sm rounded-xl cursor-not-allowed"
+                >
+                  <PenLine size={15} />
+                  소감문 쓰기
+                </button>
+                <p className="mt-1 text-center text-xs text-gray-400">스탬프를 1개 받으면 소감문을 쓸 수 있어요</p>
+              </div>
+            )}
 
             {/* 알림 구독 */}
             <div className="mt-3">
