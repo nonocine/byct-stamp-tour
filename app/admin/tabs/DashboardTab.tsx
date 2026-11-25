@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { BarChart3, Users, Stamp, TrendingUp, RefreshCw, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-import { ORGANIZATIONS } from '@/lib/data'
+import { ORGANIZATIONS, TOTAL_CENTERS } from '@/lib/data'
 import OrgIcon from '@/components/OrgIcon'
 import type { AdminUser } from '@/components/AdminProvider'
 import {
@@ -112,7 +112,7 @@ export default function DashboardTab({ admin }: Props) {
           if (!participantOrgs[r.participant_id]) participantOrgs[r.participant_id] = new Set()
           participantOrgs[r.participant_id].add(r.center_id)
         })
-        const completions = Object.values(participantOrgs).filter(s => s.size >= 17).length
+        const completions = Object.values(participantOrgs).filter(s => s.size >= TOTAL_CENTERS).length
 
         const countMap: Record<number, number> = {}
         allStamps.forEach(s => { countMap[s.center_id] = (countMap[s.center_id] ?? 0) + 1 })
@@ -156,7 +156,7 @@ export default function DashboardTab({ admin }: Props) {
         if (!participantOrgs[r.participant_id]) participantOrgs[r.participant_id] = new Set()
         participantOrgs[r.participant_id].add(r.center_id)
       })
-      const completions = Object.values(participantOrgs).filter(s => s.size >= 17).length
+      const completions = Object.values(participantOrgs).filter(s => s.size >= TOTAL_CENTERS).length
 
       const myOrg = ORGANIZATIONS.find(o => o.id === admin.center_id)
       const centerBreakdown = myOrg
@@ -319,7 +319,7 @@ export default function DashboardTab({ admin }: Props) {
             <div className="bg-green-600 rounded-2xl p-4 text-white col-span-2">
               <TrendingUp size={20} className="mb-2 opacity-80" />
               <p className="text-3xl font-black">{stats.completions}</p>
-              <p className="text-sm text-green-200 mt-0.5">17개 기관 완주자</p>
+              <p className="text-sm text-green-200 mt-0.5">{TOTAL_CENTERS}개 기관 완주자</p>
             </div>
           </div>
 
@@ -341,7 +341,7 @@ export default function DashboardTab({ admin }: Props) {
               <div className="divide-y divide-gray-50">
                 {ranking.map((r, idx) => {
                   const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null
-                  const progress = Math.min(100, Math.round((r.count / 17) * 100))
+                  const progress = Math.min(100, Math.round((r.count / TOTAL_CENTERS) * 100))
                   return (
                     <div key={r.id} className="px-5 py-3">
                       <div className="flex items-center gap-3">
@@ -357,7 +357,7 @@ export default function DashboardTab({ admin }: Props) {
                               {r.phoneSuffix && <span className="text-xs text-gray-400 ml-1.5">({r.phoneSuffix})</span>}
                             </p>
                             <p className="text-xs font-bold text-blue-600 flex-shrink-0">
-                              {r.count}<span className="font-normal text-gray-400">/17</span>
+                              {r.count}<span className="font-normal text-gray-400">/{TOTAL_CENTERS}</span>
                             </p>
                           </div>
                           <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
@@ -365,7 +365,7 @@ export default function DashboardTab({ admin }: Props) {
                               className="h-full rounded-full transition-all duration-500"
                               style={{
                                 width: `${progress}%`,
-                                background: r.count >= 17
+                                background: r.count >= TOTAL_CENTERS
                                   ? 'linear-gradient(90deg, #F59E0B, #EF4444)'
                                   : 'linear-gradient(90deg, #3B82F6, #6366F1)',
                               }}
@@ -430,7 +430,7 @@ export default function DashboardTab({ admin }: Props) {
                                   <p className="text-xs text-gray-400 mt-0.5">{formatPhone(p.phone)}</p>
                                 </div>
                                 <div className="text-right flex-shrink-0">
-                                  <p className="text-sm font-bold text-blue-600">{p.totalStamps}<span className="text-xs font-normal text-gray-400"> / 17</span></p>
+                                  <p className="text-sm font-bold text-blue-600">{p.totalStamps}<span className="text-xs font-normal text-gray-400"> / {TOTAL_CENTERS}</span></p>
                                   <p className="text-xs text-gray-400 mt-0.5">{formatDate(p.stampedAt)} 획득</p>
                                 </div>
                               </div>
@@ -469,7 +469,7 @@ export default function DashboardTab({ admin }: Props) {
                     <p className="text-xs text-gray-400 mt-0.5">{formatPhone(p.phone)} · {formatDate(p.created_at)}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-base font-black text-blue-600">{p.stampCount}<span className="text-xs font-normal text-gray-400">/17</span></p>
+                    <p className="text-base font-black text-blue-600">{p.stampCount}<span className="text-xs font-normal text-gray-400">/{TOTAL_CENTERS}</span></p>
                     <p className="text-xs text-gray-400">스탬프</p>
                   </div>
                 </div>

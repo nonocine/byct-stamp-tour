@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { Phone, User, Calendar, ChevronLeft, LogIn, UserPlus } from 'lucide-react'
 import { useAuth } from '@/components/AuthProvider'
 import type { Profile } from '@/components/AuthProvider'
+import { TOTAL_CENTERS } from '@/lib/data'
 import { calculateKoreanAge, minBirthdateForMaxAge } from '@/lib/age'
 
 const ADULT_AGE_LIMIT = 19
@@ -174,7 +175,7 @@ export default function LoginPage() {
           <span className="text-white font-black text-lg">BY</span>
         </div>
         <h1 className="text-2xl font-black text-gray-900">B.Y.C.T 스탬프투어</h1>
-        <p className="text-sm text-gray-500 mt-1">부산 17개 기관 스탬프를 모아보세요!</p>
+        <p className="text-sm text-gray-500 mt-1">부산 {TOTAL_CENTERS}개 기관 스탬프를 모아보세요!</p>
       </div>
 
       {/* 탭 */}

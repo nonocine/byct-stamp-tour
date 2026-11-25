@@ -205,7 +205,23 @@ export const ORGANIZATIONS: Organization[] = [
     textColor: "text-purple-600",
     logo: "/logos/금정청소년수련관.png",
   },
+  {
+    id: 18,
+    name: "구덕청소년수련관",
+    shortName: "구덕관",
+    // TODO: 도로명주소 확인 후 "부산시 ○○구" 형식으로 교체, 소개 문구의 지역명도 함께 수정
+    description: "지역 청소년을 위한 다양한 체험·교육 프로그램을 운영하는 수련관",
+    location: "부산시",
+    category: "청소년 체험",
+    color: "#0284C7",
+    bgColor: "bg-sky-600",
+    textColor: "text-sky-700",
+    // logo 없음 → OrgIcon/StampGrid 가 색상 + 약칭(shortName)으로 표시. 관리자 '로고 변경'으로 업로드 예정
+  },
 ]
+
+// 전체 참여기관 수 — 기관을 추가하면 자동으로 반영됨 (하드코딩 금지)
+export const TOTAL_CENTERS = ORGANIZATIONS.length
 
 export function getOrgById(id: number): Organization | undefined {
   return ORGANIZATIONS.find(o => o.id === id)

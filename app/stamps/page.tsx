@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Award, ChevronRight, LogIn, RefreshCw, Info, Star, FileDown } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-import { ORGANIZATIONS, getOrgById } from '@/lib/data'
+import { ORGANIZATIONS, TOTAL_CENTERS, getOrgById } from '@/lib/data'
 import StampGrid from '@/components/StampGrid'
 import OrgIcon from '@/components/OrgIcon'
 import ReviewModal from '@/components/ReviewModal'
@@ -127,8 +127,8 @@ export default function StampsPage() {
   const reviewedOrgIds = new Set(reviews.map(r => r.center_id))
   const reviewByOrg = new Map(reviews.map(r => [r.center_id, r]))
   const count = stampedOrgIds.size
-  const progress = Math.round((count / 17) * 100)
-  const isComplete = count >= 17
+  const progress = Math.round((count / TOTAL_CENTERS) * 100)
+  const isComplete = count >= TOTAL_CENTERS
   const displayPhone = profile.phone.replace(/(\d{3})(\d{4})(\d{4})/, '$1-$2-$3')
 
   function formatDate(iso: string) {
@@ -158,7 +158,7 @@ export default function StampsPage() {
         <div className="bg-gradient-to-r from-yellow-400 to-orange-400 rounded-2xl p-5 text-white text-center shadow-lg shadow-orange-200">
           <p className="text-3xl mb-1">🎉</p>
           <p className="text-lg font-black">완주 달성!</p>
-          <p className="text-sm text-yellow-100 mt-1">17개 기관을 모두 체험하셨습니다!</p>
+          <p className="text-sm text-yellow-100 mt-1">{TOTAL_CENTERS}개 기관을 모두 체험하셨습니다!</p>
         </div>
       )}
 
@@ -175,7 +175,7 @@ export default function StampsPage() {
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold text-gray-700">수집 현황</h2>
-          <span className="text-sm text-gray-500">{count} / 17</span>
+          <span className="text-sm text-gray-500">{count} / {TOTAL_CENTERS}</span>
         </div>
 
         <div className="relative h-4 bg-gray-100 rounded-full overflow-hidden mb-3">
@@ -201,7 +201,7 @@ export default function StampsPage() {
             <p className="text-xs text-gray-400">수집 스탬프</p>
           </div>
           <div>
-            <p className="text-xl font-black text-green-600">{17 - count}</p>
+            <p className="text-xl font-black text-green-600">{TOTAL_CENTERS - count}</p>
             <p className="text-xs text-gray-400">남은 기관</p>
           </div>
         </div>
@@ -323,9 +323,9 @@ export default function StampsPage() {
       )}
 
       {/* 남은 기관 안내 */}
-      {count < 17 && (
+      {count < TOTAL_CENTERS && (
         <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
-          <p className="text-sm font-semibold text-blue-800 mb-1">아직 {17 - count}개 기관이 남았어요!</p>
+          <p className="text-sm font-semibold text-blue-800 mb-1">아직 {TOTAL_CENTERS - count}개 기관이 남았어요!</p>
           <p className="text-xs text-blue-600 mb-3">더 많은 프로그램을 체험하고 스탬프를 모아보세요.</p>
           <Link
             href="/programs"

@@ -1,6 +1,6 @@
 'use client'
 import { forwardRef } from 'react'
-import { ORGANIZATIONS } from '@/lib/data'
+import { ORGANIZATIONS, TOTAL_CENTERS } from '@/lib/data'
 
 export interface CertificateStamp {
   center_id: number
@@ -112,7 +112,7 @@ const Certificate = forwardRef<HTMLDivElement, Props>(function Certificate(
         <p style={{ fontSize: 17, lineHeight: 1.9, textAlign: 'center', margin: 0 }}>
           <span style={{ fontWeight: 800, fontSize: 21, color: '#1d4ed8' }}>{participantName}</span>{' '}
           님은 2026년 B.Y.C.T 부산 청소년 스탬프투어에 참가하여<br />
-          <strong>17개 기관 중 {stamps.length}개 기관</strong>을 체험하였음을 인증합니다.
+          <strong>{TOTAL_CENTERS}개 기관 중 {stamps.length}개 기관</strong>을 체험하였음을 인증합니다.
         </p>
       </div>
 

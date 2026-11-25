@@ -5,7 +5,7 @@ import {
   X, Edit2, Download,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-import { ORGANIZATIONS } from '@/lib/data'
+import { ORGANIZATIONS, TOTAL_CENTERS } from '@/lib/data'
 import { deleteParticipantsCascade, fetchAllParticipantIds } from '@/lib/participants'
 import { exportParticipantsExcel } from '@/lib/exportParticipants'
 import OrgIcon from '@/components/OrgIcon'
@@ -469,7 +469,7 @@ export default function ParticipantTab({ admin }: Props) {
                         </button>
                       )}
                       <span className="text-xs font-bold text-blue-600 flex-shrink-0 ml-auto">
-                        {p.stampCount}<span className="font-normal text-gray-400">/17</span>
+                        {p.stampCount}<span className="font-normal text-gray-400">/{TOTAL_CENTERS}</span>
                       </span>
                     </div>
                     <p className="text-xs text-gray-400 mt-0.5">

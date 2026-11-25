@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
-import { ORGANIZATIONS } from '@/lib/data'
+import { ORGANIZATIONS, TOTAL_CENTERS } from '@/lib/data'
 
 function formatPhone(v: string) {
   const d = v.replace(/\D/g, '').slice(0, 11)
@@ -81,7 +81,7 @@ export async function exportParticipantsExcel(centerId: number | null | undefine
     programByKey[`${a.participant_id}_${a.center_id}`] = a.program_title ?? ''
   })
 
-  // 4. 총 스탬프 수 계산용 (전체 17개 기관 기준 — distinct center_id)
+  // 4. 총 스탬프 수 계산용 (전체 기관 수 TOTAL_CENTERS 기준 — distinct center_id)
   const ids = profileList.map(p => p.id)
   const { data: countData } = ids.length > 0
     ? await supabase
@@ -106,7 +106,7 @@ export async function exportParticipantsExcel(centerId: number | null | undefine
       '생년월일': formatBirthdate(p.birthdate),
       '가입일': formatDate(p.created_at),
       '총 스탬프 수': orgCount,
-      '완주여부': orgCount >= 17 ? 'O' : '',
+      '완주여부': orgCount >= TOTAL_CENTERS ? 'O' : '',
     }
   })
 

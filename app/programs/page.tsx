@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { MapPin, Clock, Users, ChevronDown, ChevronUp, ExternalLink, Info, Check } from 'lucide-react'
 import OrgIcon from '@/components/OrgIcon'
-import { ORGANIZATIONS } from '@/lib/data'
+import { ORGANIZATIONS, TOTAL_CENTERS } from '@/lib/data'
 import { fetchAllPrograms } from '@/lib/programs'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/AuthProvider'
@@ -32,6 +32,7 @@ const ORG_ADDRESSES: Record<number, string> = {
   15: '부산광역시 남구 황령대로 401-9',
   16: '부산광역시 해운대구 해운대해변로 35',
   17: '부산광역시 금정구 기찰로96번길 47',
+  // 18: 구덕청소년수련관 — 도로명주소 미확인. 주소 확인 후 추가하면 지도 마커가 표시됨
 }
 
 export default function ProgramsPage() {
@@ -268,7 +269,7 @@ export default function ProgramsPage() {
       {/* 헤더 */}
       <div className="px-4 mb-3">
         <h1 className="text-xl font-black text-gray-900">프로그램 목록</h1>
-        <p className="text-sm text-gray-500 mt-0.5">17개 기관</p>
+        <p className="text-sm text-gray-500 mt-0.5">{TOTAL_CENTERS}개 기관</p>
       </div>
 
       {/* 안내 */}

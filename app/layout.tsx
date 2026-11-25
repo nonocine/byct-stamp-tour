@@ -4,10 +4,11 @@ import Navigation from '@/components/Navigation'
 import { AuthProvider } from '@/components/AuthProvider'
 import { OrgLogosProvider } from '@/components/OrgLogosProvider'
 import Splash from '@/components/Splash'
+import { TOTAL_CENTERS } from '@/lib/data'
 
 export const metadata: Metadata = {
   title: 'B.Y.C.T 부산 청소년 스탬프투어',
-  description: '부산 17개 청소년기관을 체험하고 스탬프를 모아 완주 인증을 받으세요!',
+  description: `부산 ${TOTAL_CENTERS}개 청소년기관을 체험하고 스탬프를 모아 완주 인증을 받으세요!`,
   metadataBase: new URL('https://byct-stamp-tour.vercel.app'),
   manifest: '/manifest.json',
   icons: {
@@ -16,7 +17,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: 'B.Y.C.T 부산 청소년 스탬프투어',
-    description: '부산 17개 청소년기관을 체험하고 스탬프를 모아 완주 인증을 받으세요!',
+    description: `부산 ${TOTAL_CENTERS}개 청소년기관을 체험하고 스탬프를 모아 완주 인증을 받으세요!`,
     images: [
       {
         url: 'https://byct-stamp-tour.vercel.app/logos/동래구청소년센터.png',

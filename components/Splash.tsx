@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { TOTAL_CENTERS } from '@/lib/data'
 
 interface Props {
   /** 스플래시 재생이 끝났을 때(또는 이미 본 세션이라 생략됐을 때) 호출 */
@@ -87,7 +88,7 @@ export default function Splash({ onComplete }: Props) {
       </div>
 
       {/* 5. 하단 문구 */}
-      <p className="byct-tagline">17개 기관, 하나의 도전</p>
+      <p className="byct-tagline">{TOTAL_CENTERS}개 기관, 하나의 도전</p>
 
       <style jsx global>{`
         .byct-splash {

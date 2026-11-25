@@ -5,7 +5,7 @@ import {
   Edit2, RefreshCw, PlusCircle, Image as ImageIcon, Upload, FileText, ExternalLink, Trash2,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-import { ORGANIZATIONS } from '@/lib/data'
+import { ORGANIZATIONS, TOTAL_CENTERS } from '@/lib/data'
 import { fetchAllPrograms } from '@/lib/programs'
 import type { Program } from '@/lib/types'
 import OrgIcon from '@/components/OrgIcon'
@@ -203,7 +203,7 @@ export default function ProgramTab({ admin }: Props) {
           ) : (
             <>
               <h2 className="text-base font-bold text-gray-900">전체 프로그램 관리</h2>
-              <p className="text-xs text-gray-500 mt-0.5">17개 기관의 모든 프로그램을 등록·수정할 수 있습니다.</p>
+              <p className="text-xs text-gray-500 mt-0.5">{TOTAL_CENTERS}개 기관의 모든 프로그램을 등록·수정할 수 있습니다.</p>
             </>
           )}
         </div>

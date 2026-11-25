@@ -3,7 +3,10 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { MapPin, Calendar, Award, ChevronRight, Stamp, Info, PenLine } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-import { ORGANIZATIONS } from '@/lib/data'
+import { ORGANIZATIONS, TOTAL_CENTERS } from '@/lib/data'
+
+// 홈 화면 '참여 기관' 미리보기에 보여줄 기관 수
+const PREVIEW_COUNT = 8
 import OrgIcon from '@/components/OrgIcon'
 import { useAuth } from '@/components/AuthProvider'
 import PushNotificationButton from '@/components/PushNotificationButton'
@@ -25,7 +28,7 @@ export default function HomePage() {
       })
   }, [profile])
 
-  const progress = Math.round((stampCount / 17) * 100)
+  const progress = Math.round((stampCount / TOTAL_CENTERS) * 100)
 
   const displayPhone = profile?.phone
     ? profile.phone.replace(/(\d{3})(\d{4})(\d{4})/, '$1-$2-$3')
@@ -51,7 +54,7 @@ export default function HomePage() {
             <span className="text-[7px] text-orange-200/70 tracking-widest font-bold mt-0.5">STAMP</span>
           </div>
           <div className="w-[54px] h-[54px] rounded-full border-2 border-dashed border-green-300/60 bg-green-400/25 flex flex-col items-center justify-center">
-            <span className="text-sm font-black leading-none text-green-100">17</span>
+            <span className="text-sm font-black leading-none text-green-100">{String(TOTAL_CENTERS).padStart(2, '0')}</span>
             <span className="text-[7px] text-green-200/70 tracking-widest font-bold mt-0.5">STAMP</span>
           </div>
         </div>
@@ -82,7 +85,7 @@ export default function HomePage() {
 
           {/* 서브텍스트 */}
           <p className="text-sm text-blue-100/90 mb-5 leading-relaxed">
-            부산 17개 기관을 체험하고<br />
+            부산 {TOTAL_CENTERS}개 기관을 체험하고<br />
             스탬프를 모아 완주 인증을 받으세요!
           </p>
 
@@ -109,7 +112,7 @@ export default function HomePage() {
 
         {/* 하단 정보바 */}
         <div className="bg-black/25 px-6 py-2.5 flex items-center justify-around">
-          <span className="text-xs text-white/80 font-medium">🏢 17개 참여기관</span>
+          <span className="text-xs text-white/80 font-medium">🏢 {TOTAL_CENTERS}개 참여기관</span>
           <span className="w-px h-3 bg-white/20" />
           <span className="text-xs text-white/80 font-medium">📅 6월~11월</span>
           <span className="w-px h-3 bg-white/20" />
@@ -129,7 +132,7 @@ export default function HomePage() {
               </div>
               <div className="text-right">
                 <p className="text-3xl font-black text-blue-600">{stampCount}</p>
-                <p className="text-xs text-gray-500">/ 17 스탬프</p>
+                <p className="text-xs text-gray-500">/ {TOTAL_CENTERS} 스탬프</p>
               </div>
             </div>
 
@@ -207,7 +210,7 @@ export default function HomePage() {
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white rounded-2xl p-4 text-center shadow-sm border border-gray-100">
           <Award className="mx-auto text-yellow-500 mb-1.5" size={22} />
-          <p className="text-xl font-black text-gray-900">17</p>
+          <p className="text-xl font-black text-gray-900">{TOTAL_CENTERS}</p>
           <p className="text-xs text-gray-500 mt-0.5">참여기관</p>
         </div>
         <div className="bg-white rounded-2xl p-4 text-center shadow-sm border border-gray-100">
@@ -229,7 +232,7 @@ export default function HomePage() {
           <Link href="/programs" className="text-xs text-blue-600 font-medium">전체보기 →</Link>
         </div>
         <div className="grid grid-cols-4 gap-2">
-          {ORGANIZATIONS.slice(0, 8).map(org => (
+          {ORGANIZATIONS.slice(0, PREVIEW_COUNT).map(org => (
             <Link
               key={org.id}
               href={`/programs?center=${org.id}`}
@@ -246,7 +249,7 @@ export default function HomePage() {
           href="/programs"
           className="block text-center text-xs text-gray-500 mt-2 cursor-pointer hover:text-blue-600 hover:underline transition-colors"
         >
-          외 9개 기관 더보기 →
+          외 {TOTAL_CENTERS - PREVIEW_COUNT}개 기관 더보기 →
         </Link>
       </div>
 
@@ -256,9 +259,9 @@ export default function HomePage() {
         <div className="space-y-3">
           {[
             { step: '01', title: '회원가입 & 로그인', desc: '전화번호와 생년월일로 간편하게 가입해요' },
-            { step: '02', title: '기관 방문 & 체험', desc: '17개 기관의 프로그램을 체험해요.\n프로그램 신청은 해당 기관 사이트에서 한번 더 해주세요' },
+            { step: '02', title: '기관 방문 & 체험', desc: `${TOTAL_CENTERS}개 기관의 프로그램을 체험해요.\n프로그램 신청은 해당 기관 사이트에서 한번 더 해주세요` },
             { step: '03', title: '별점 평가 & 스탬프', desc: '체험 후 기관 담당자가 스탬프를 찍고 만족도 평가를 해요' },
-            { step: '04', title: '완주 인증', desc: '17개 모두 수집하면 완주 인증서를 받아요! 가장 많은 스탬프를 모은 청소년에게 포상\n📜 스탬프 3개 이상 획득시 수료증 발급' },
+            { step: '04', title: '완주 인증', desc: `${TOTAL_CENTERS}개 모두 수집하면 완주 인증서를 받아요! 가장 많은 스탬프를 모은 청소년에게 포상\n📜 스탬프 3개 이상 획득시 수료증 발급` },
           ].map(item => (
             <div key={item.step} className="flex items-start gap-3">
               <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
