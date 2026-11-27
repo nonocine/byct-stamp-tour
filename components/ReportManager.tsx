@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { storageViewUrl } from '@/lib/storageRef'
 import { RefreshCw, Download, FileText, Save, Eye, Edit2 } from 'lucide-react'
-import { generateCenterReport, generateGlobalReport } from '@/lib/reportGenerator'
+import { generateCenterReport, generateGlobalReport, programLabel } from '@/lib/reportGenerator'
 import { downloadReportAsDocx, PHOTO_SECTION_TITLE } from '@/lib/reportDocx'
 import { ORGANIZATIONS } from '@/lib/data'
 import SatisfactionChart, { type SatisfactionData } from '@/components/SatisfactionChart'
@@ -15,6 +15,8 @@ type View = 'preview' | 'edit'
 interface Props {
   scope: Scope
   centerId?: number
+  /** 기관별 보고서에서 고른 프로그램 id. 비어 있으면 전체 프로그램(합쳐서) — 기존 동작 */
+  programId?: string
   createdBy: string
   /** 기관 관리자(담당지도자) 여부 — 종합의견 편집 가능 */
   canEditOpinion?: boolean
@@ -102,6 +104,7 @@ function renderMarkdown(md: string): string {
 export default function ReportManager({
   scope,
   centerId,
+  programId,
   createdBy,
   canEditOpinion = false,
   externalMarkdown,
@@ -117,6 +120,8 @@ export default function ReportManager({
   const [satisfaction, setSatisfaction] = useState<SatisfactionData | null>(null)
   // 현장 사진(report-photos 버킷 경로) — CenterOpinionSection 이 불러온 목록과 동기화
   const [photoRefs, setPhotoRefs] = useState<string[]>([])
+  // 마지막으로 생성한 보고서의 대상 프로그램 — Word 파일명에 사용 (저장본 불러오기 시 null)
+  const [generatedProgram, setGeneratedProgram] = useState<{ title: string; date: string | null } | null>(null)
   const showPhotos = scope === 'center' && !!centerId && photoRefs.length > 0
 
   // 외부 주입 마크다운 — key 변경 시 내부 상태 교체
@@ -128,6 +133,7 @@ export default function ReportManager({
       setError('')
       setSavedAt(null)
       setSatisfaction(null) // 저장본 불러오기 시 차트 데이터 없음
+      setGeneratedProgram(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalMarkdownKey])
@@ -136,11 +142,13 @@ export default function ReportManager({
    * 보고서 집계는 서버(service_role)에서 수행한다 — reviews / center_reports /
    * global_plans 가 RLS로 잠겨 있어 브라우저에서는 집계할 수 없다.
    */
-  async function fetchReportData(scopeArg: 'center', centerIdArg: number): Promise<any>
+  async function fetchReportData(scopeArg: 'center', centerIdArg: number, programIdArg?: string): Promise<any>
   async function fetchReportData(scopeArg: 'global'): Promise<any>
-  async function fetchReportData(scopeArg: 'center' | 'global', centerIdArg?: number): Promise<any> {
+  async function fetchReportData(scopeArg: 'center' | 'global', centerIdArg?: number, programIdArg?: string): Promise<any> {
     const qs =
-      scopeArg === 'global' ? 'scope=global' : `scope=center&centerId=${centerIdArg}`
+      scopeArg === 'global'
+        ? 'scope=global'
+        : `scope=center&centerId=${centerIdArg}${programIdArg ? `&programId=${encodeURIComponent(programIdArg)}` : ''}`
     const res = await fetch(`/api/admin/report-data?${qs}`, { cache: 'no-store' })
     const payload = await res.json().catch(() => null)
     if (!res.ok) throw new Error(payload?.error ?? '데이터 수집에 실패했습니다.')
@@ -154,6 +162,7 @@ export default function ReportManager({
     try {
       let md: string
       if (scope === 'global') {
+        setGeneratedProgram(null)
         const data = await fetchReportData('global')
         md = generateGlobalReport(data)
         setSatisfaction({
@@ -163,8 +172,9 @@ export default function ReportManager({
         })
       } else {
         if (!centerId) throw new Error('기관이 선택되지 않았습니다.')
-        const data = await fetchReportData('center', centerId)
+        const data = await fetchReportData('center', centerId, programId)
         md = generateCenterReport(data)
+        setGeneratedProgram(data.selectedProgram ?? null)
         setSatisfaction({
           programAvg: data.satisfaction.programAvg,
           leaderAvg: data.satisfaction.leaderAvg,
@@ -187,7 +197,11 @@ export default function ReportManager({
     try {
       const tag = new Date().toISOString().slice(0, 10).replace(/-/g, '')
       const shortName = ORGANIZATIONS.find(o => o.id === centerId)?.shortName ?? 'center'
-      const base = scope === 'global' ? `byct_통합보고서_${tag}` : `byct_${shortName}_${tag}`
+      // 프로그램을 골라 만든 보고서는 파일명에 "프로그램명(날짜)" 추가 (파일명에 못 쓰는 문자는 제거)
+      const programPart = generatedProgram
+        ? `_${programLabel(generatedProgram).replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '')}`
+        : ''
+      const base = scope === 'global' ? `byct_통합보고서_${tag}` : `byct_${shortName}${programPart}_${tag}`
 
       // 기관별 보고서에는 미리보기와 같은 현장 사진을 맨 마지막 섹션으로 첨부.
       // 비공개 버킷 — 서버가 로그인·기관 권한 확인 후 직접 내려받은 사진을 넣는다(raw).

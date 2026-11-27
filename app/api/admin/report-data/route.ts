@@ -52,7 +52,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: '본인 기관만 조회할 수 있습니다.' }, { status: 403 })
     }
 
-    const data = await collectCenterReportData(centerId, supabase)
+    // 프로그램 선택(선택) — 없으면 전체 프로그램 합산. 기관 소속 여부는 집계 함수가 확인한다.
+    const programId = params.get('programId')?.trim() || null
+    const data = await collectCenterReportData(centerId, supabase, programId)
     return NextResponse.json({ scope: 'center', data })
   } catch (e: any) {
     console.error('[admin/report-data] 집계 실패:', e?.message ?? e)

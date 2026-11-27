@@ -34,8 +34,20 @@ function ageDistRows(ag: AgeGroups): string {
   ].join('\n')
 }
 
+/** 보고서 제목·파일명에 쓰는 프로그램 표기 — "프로그램명 (날짜)" */
+export function programLabel(p: { title: string; date: string | null }): string {
+  return `${(p.title ?? '').trim() || '프로그램'} (${p.date || '일정 미정'})`
+}
+
 export function generateCenterReport(data: CenterReportData): string {
   const o = data.organization
+  const sel = data.selectedProgram
+  // 전체 프로그램(합쳐서) — 기존 문구 그대로 유지. 프로그램 선택 시에만 아래 문구가 달라진다.
+  const unmatchedNote = data.unmatchedStamps > 0
+    ? sel
+      ? `\n\n> 회차를 특정할 수 없는 스탬프 ${fmtNum(data.unmatchedStamps)}건은 제외되었습니다.`
+      : `\n\n> 회차를 특정할 수 없는 스탬프 ${fmtNum(data.unmatchedStamps)}건은 프로그램별 참여 인원에서 제외되었습니다.`
+    : ''
 
   const programsTable = data.programs.length > 0
     ? `| 프로그램명 | 일정 | 대상 | 참여 인원 | 계획서 |
@@ -45,7 +57,7 @@ ${data.programs
     p =>
       `| ${p.title} | ${p.date ?? '-'} ${p.time ?? ''} | ${p.target || '-'} | ${fmtNum(p.participants)}명 | ${p.hasPlanPdf ? '✅' : '-'} |`,
   )
-  .join('\n')}${data.unmatchedStamps > 0 ? `\n\n> 회차를 특정할 수 없는 스탬프 ${fmtNum(data.unmatchedStamps)}건은 프로그램별 참여 인원에서 제외되었습니다.` : ''}`
+  .join('\n')}${unmatchedNote}`
     : '> 등록된 프로그램이 없습니다.'
 
   const commentsBlock = data.satisfaction.comments.length > 0
@@ -66,9 +78,13 @@ ${data.programs
 ${data.timeline.map(t => `| ${t.date} | ${fmtNum(t.stamps)} |`).join('\n')}`
     : '> 활동 기록이 아직 없습니다.'
 
-  return `# ${o.name} 결과보고서
+  const programIntro = sel
+    ? `선택한 프로그램 **${programLabel(sel)}** 기준으로 집계한 보고서입니다.`
+    : `총 **${fmtNum(data.programs.length)}개** 프로그램이 등록되어 있으며, 그중 ${fmtNum(data.programs.filter(p => p.hasPlanPdf).length)}개에 계획서 PDF가 첨부되어 있습니다.`
 
-> 생성일: ${todayKorean()}
+  return `# ${o.name} 결과보고서${sel ? ` — ${programLabel(sel)}` : ''}
+
+> 생성일: ${todayKorean()}${sel ? `\n> 대상 프로그램: ${programLabel(sel)}` : ''}
 
 ## 1. 기관 개요
 
@@ -81,14 +97,14 @@ ${data.timeline.map(t => `| ${t.date} | ${fmtNum(t.stamps)} |`).join('\n')}`
 
 ## 2. 프로그램 운영 현황
 
-총 **${fmtNum(data.programs.length)}개** 프로그램이 등록되어 있으며, 그중 ${fmtNum(data.programs.filter(p => p.hasPlanPdf).length)}개에 계획서 PDF가 첨부되어 있습니다.
+${programIntro}
 
 ${programsTable}
 
 ## 3. 참여 현황
 
 - 실제 참여 인원: **${fmtNum(data.stamps.uniqueParticipants)}명** (스탬프 발급 기준, 중복 제거)
-- 발급된 스탬프 수: **${fmtNum(data.stamps.total)}건**
+- 발급된 스탬프 수: **${fmtNum(data.stamps.total)}건**${sel ? `\n- 집계 기준: ${programLabel(sel)} 스탬프만 집계${data.unmatchedStamps > 0 ? ` (회차를 특정할 수 없는 스탬프 ${fmtNum(data.unmatchedStamps)}건은 제외되었습니다)` : ''}` : ''}
 
 ## 4. 참여자 연령 분포
 
@@ -98,7 +114,7 @@ ${ageDistRows(data.ageGroups)}
 
 ## 5. 만족도
 
-- 누적 평가 수: ${fmtNum(data.satisfaction.count)}건
+- 누적 평가 수: ${fmtNum(data.satisfaction.count)}건${sel ? '\n- 집계 기준: 이 프로그램의 스탬프를 받은 참가자가 남긴 기관 평가만 반영' : ''}
 
 | 항목 | 평균 점수 |
 | --- | --- |

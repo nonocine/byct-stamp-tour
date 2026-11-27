@@ -6,6 +6,9 @@ import {
 } from 'lucide-react'
 import { ORGANIZATIONS } from '@/lib/data'
 import ReportManager from '@/components/ReportManager'
+import { fetchProgramsByOrg } from '@/lib/programs'
+import { programLabel } from '@/lib/reportGenerator'
+import type { Program } from '@/lib/types'
 import type { AdminUser } from '@/components/AdminProvider'
 import { formatDate } from './shared'
 
@@ -35,6 +38,52 @@ export default function ReportTab({ admin }: Props) {
   const initialCenterId = admin.role === 'center' ? (admin.center_id ?? null) : null
   const [reportScope, setReportScope] = useState<'center' | 'global'>(initialScope)
   const [reportCenterId, setReportCenterId] = useState<number | null>(initialCenterId)
+  // 기관별 보고서 — 프로그램 선택 ('' = 전체 프로그램(합쳐서), 기존 동작)
+  const [reportProgramId, setReportProgramId] = useState<string>('')
+  const [centerPrograms, setCenterPrograms] = useState<Program[]>([])
+  const [centerProgramsLoading, setCenterProgramsLoading] = useState(false)
+  // 실제로 보고서를 만들 기관 — 기관 관리자는 자기 기관 고정, 슈퍼관리자는 고른 기관
+  const effectiveCenterId: number | null =
+    admin.role === 'center'
+      ? (admin.center_id ?? null)
+      : (reportScope === 'center' ? reportCenterId : null)
+
+  // 기관이 바뀌면 그 기관의 프로그램 목록을 다시 불러오고 선택은 '전체'로 되돌린다
+  useEffect(() => {
+    setReportProgramId('')
+    if (!effectiveCenterId) {
+      setCenterPrograms([])
+      return
+    }
+    let cancelled = false
+    setCenterProgramsLoading(true)
+    fetchProgramsByOrg(effectiveCenterId)
+      .then(list => { if (!cancelled) setCenterPrograms(list) })
+      .finally(() => { if (!cancelled) setCenterProgramsLoading(false) })
+    return () => { cancelled = true }
+  }, [effectiveCenterId])
+
+  const programSelect = effectiveCenterId ? (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3 no-print">
+      <label className="block text-xs font-semibold text-gray-600 mb-1.5 px-1">프로그램 선택</label>
+      <select
+        value={reportProgramId}
+        onChange={e => setReportProgramId(e.target.value)}
+        disabled={centerProgramsLoading}
+        className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+      >
+        <option value="">전체 프로그램(합쳐서)</option>
+        {centerPrograms.map(p => (
+          <option key={p.id} value={p.id}>{programLabel({ title: p.title, date: p.date || null })}</option>
+        ))}
+      </select>
+      <p className="text-[11px] text-gray-400 mt-1.5 px-1">
+        {centerProgramsLoading
+          ? '프로그램 목록을 불러오는 중...'
+          : '프로그램을 고르면 그 프로그램(회차)의 스탬프·참가자·평가만으로 보고서를 만듭니다.'}
+      </p>
+    </div>
+  ) : null
 
   const [globalPlans, setGlobalPlans] = useState<GlobalPlanRow[]>([])
   const [globalPlansLoading, setGlobalPlansLoading] = useState(false)
@@ -258,6 +307,8 @@ export default function ReportTab({ admin }: Props) {
             </div>
           )}
 
+          {reportScope === 'center' && programSelect}
+
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden no-print">
             <div className="px-5 py-4 border-b border-gray-100">
               <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2">
@@ -342,13 +393,12 @@ export default function ReportTab({ admin }: Props) {
         </div>
       )}
 
+      {admin.role === 'center' && programSelect}
+
       <ReportManager
         scope={admin.role === 'center' ? 'center' : reportScope}
-        centerId={
-          admin.role === 'center'
-            ? (admin.center_id ?? undefined)
-            : (reportScope === 'center' ? (reportCenterId ?? undefined) : undefined)
-        }
+        centerId={effectiveCenterId ?? undefined}
+        programId={reportProgramId || undefined}
         createdBy={admin.name}
         canEditOpinion={admin.role === 'center'}
         externalMarkdown={loadedReport?.markdown ?? null}

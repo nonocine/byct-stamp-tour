@@ -37,8 +37,11 @@ export interface CenterReportData {
     description: string
   }
   programs: ProgramSummary[]
-  /** 회차를 특정할 수 없어 프로그램별 참여 인원 집계에서 빠진 스탬프 수 */
+  /** 회차를 특정할 수 없어 프로그램별 참여 인원 집계에서 빠진 스탬프 수
+   *  (프로그램 선택 시: 선택한 프로그램일 가능성이 있었지만 회차를 특정할 수 없어 제외된 스탬프 수) */
   unmatchedStamps: number
+  /** 프로그램을 골라 생성한 보고서면 그 프로그램, 전체 프로그램(합쳐서)이면 null */
+  selectedProgram: { id: string; title: string; date: string | null } | null
   stamps: {
     total: number
     uniqueParticipants: number
@@ -168,6 +171,8 @@ function buildTimeline(stamps: any[]) {
 export async function collectCenterReportData(
   centerId: number,
   client: SupabaseClient,
+  /** 지정하면 그 프로그램(회차) 기준으로만 집계. 생략/null 이면 전체 프로그램 합산(기존 동작) */
+  programId?: string | null,
 ): Promise<CenterReportData> {
   const org = ORGANIZATIONS.find(o => o.id === centerId)
   if (!org) throw new Error(`기관을 찾을 수 없습니다 (centerId=${centerId})`)
@@ -184,7 +189,7 @@ export async function collectCenterReportData(
       .eq('center_id', centerId),
     client
       .from('reviews')
-      .select('rating, comment, participant_name, program_rating, leader_rating, facility_rating, wish_program, created_at')
+      .select('participant_id, rating, comment, participant_name, program_rating, leader_rating, facility_rating, wish_program, created_at')
       .eq('center_id', centerId)
       .order('created_at', { ascending: false }),
   ])
@@ -203,8 +208,13 @@ export async function collectCenterReportData(
   }
 
   const progRows = (progRes.data ?? []) as any[]
-  const stamps = (stampRes.data ?? []) as any[]
-  const reviews = (reviewRes.data ?? []) as any[]
+  const allStamps = (stampRes.data ?? []) as any[]
+  const allReviews = (reviewRes.data ?? []) as any[]
+
+  const selectedRow = programId ? progRows.find(p => p.id === programId) : null
+  if (programId && !selectedRow) {
+    throw new Error('선택한 프로그램이 이 기관의 프로그램이 아닙니다.')
+  }
 
   // 프로그램별 참여 인원 — 매칭 우선순위는 통합 보고서와 동일:
   // ① stamp_records.program_id = programs.id  ② 정규화된 이름 (회차·오전/오후 접미사 제거)
@@ -213,13 +223,17 @@ export async function collectCenterReportData(
     progRows.map(p => [p.id as string, new Set<string>()]),
   )
   const idMatched = new Set(
-    stamps.map(s => s.program_id).filter((id: any) => typeof id === 'string' && participantsByProgram.has(id)),
+    allStamps.map(s => s.program_id).filter((id: any) => typeof id === 'string' && participantsByProgram.has(id)),
   )
   let unmatchedStamps = 0
-  for (const s of stamps) {
-    let programId: string | undefined
+  // 프로그램 선택 시: 선택한 프로그램으로 귀속된 스탬프 / 선택한 프로그램일 수도 있었지만 특정 못 한 스탬프
+  const selectedStamps: any[] = []
+  let selectedUnmatched = 0
+  for (const s of allStamps) {
+    let pool: any[] | null = null
+    let matchedId: string | undefined
     if (typeof s.program_id === 'string' && idMatched.has(s.program_id)) {
-      programId = s.program_id
+      matchedId = s.program_id
     } else {
       const key = typeof s.program_title === 'string' ? normalizeProgramTitle(s.program_title) : ''
       const candidates = key
@@ -227,17 +241,28 @@ export async function collectCenterReportData(
         : progRows
       // 이름 매칭은 program_id 로 회차가 분리되지 않은 프로그램을 우선
       const unsplit = candidates.filter(p => !idMatched.has(p.id))
-      const pool = unsplit.length > 0 ? unsplit : candidates
-      if (pool.length === 1) programId = pool[0].id
+      pool = unsplit.length > 0 ? unsplit : candidates
+      if (pool.length === 1) matchedId = pool[0].id
     }
-    if (!programId) {
+    if (!matchedId) {
       unmatchedStamps++
+      if (selectedRow && pool?.some(p => p.id === selectedRow.id)) selectedUnmatched++
       continue
     }
-    if (s.participant_id) participantsByProgram.get(programId)!.add(s.participant_id)
+    if (selectedRow && matchedId === selectedRow.id) selectedStamps.push(s)
+    if (s.participant_id) participantsByProgram.get(matchedId)!.add(s.participant_id)
   }
 
-  const programs: ProgramSummary[] = progRows.map((p: any) => ({
+  // 집계 대상 — 전체 프로그램이면 기관의 모든 스탬프·평가, 프로그램 선택이면
+  // 그 프로그램 스탬프와 그 스탬프를 받은 참가자의 평가만 (reviews 는 기관 단위라
+  // participant_id + center_id 로 stamp_records 와 연결)
+  const stamps = selectedRow ? selectedStamps : allStamps
+  const selectedPids = new Set(selectedStamps.map(s => s.participant_id).filter(Boolean))
+  const reviews = selectedRow
+    ? allReviews.filter(r => r.participant_id && selectedPids.has(r.participant_id))
+    : allReviews
+
+  const programs: ProgramSummary[] = (selectedRow ? [selectedRow] : progRows).map((p: any) => ({
     id: p.id,
     title: p.title,
     date: p.date ?? null,
@@ -298,7 +323,10 @@ export async function collectCenterReportData(
       description: org.description,
     },
     programs,
-    unmatchedStamps,
+    unmatchedStamps: selectedRow ? selectedUnmatched : unmatchedStamps,
+    selectedProgram: selectedRow
+      ? { id: selectedRow.id, title: selectedRow.title ?? '', date: selectedRow.date ?? null }
+      : null,
     stamps: { total: stamps.length, uniqueParticipants },
     ageGroups,
     satisfaction: {
